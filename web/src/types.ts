@@ -124,10 +124,33 @@ export interface Match3Render {
   last_move: Match3LastMove | null;
 }
 
+export interface FlappyPipe {
+  x: number;
+  width: number;
+  gap_top: number;
+  gap_bottom: number;
+  scored: boolean;
+}
+
+export interface FlappyRender {
+  game: "flappy";
+  text?: string;
+  bird_x: number;
+  bird_y: number;
+  bird_vy: number;
+  bird_radius: number;
+  pipes: FlappyPipe[];
+  score: number;
+  steps: number;
+  width: number;
+  height: number;
+}
+
 export type RenderState =
   | BlackjackRender
   | HolRender
   | Match3Render
+  | FlappyRender
   | { game: string; text?: string };
 
 export interface SessionStats {

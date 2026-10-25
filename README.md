@@ -50,6 +50,34 @@ line, baselines, YAML, render builder, frontend board):
   actions — the trainer now uses sb3-contrib's `MaskableEvalCallback`
   for MaskablePPO. See [DESIGN.md](DESIGN.md#match-3-m3--the-frameworks-final-exam).
 
+## Milestone 4 — Flappy Bird (first continuous game)
+
+The framework's first game that isn't turn-based — the test of the
+thesis that a Gymnasium step is a **time slice**, not a turn:
+
+* **Flappy Bird** — side-view world (288×512), bird pinned at fixed x,
+  pipes scrolling past; the agent decides 20 times per second whether
+  to flap. Physics (gravity, flap velocity, pipe speed/gap/spacing,
+  `dt`, integration substeps) is parameterized through `env_kwargs`.
+  Nothing in the framework core changed to admit it.
+* **Derivatives in the observation, not frame stacking** — the
+  5-vector obs is bird height, **vertical velocity**, distance to the
+  next pipe, and its gap edges: a Markov state for a dynamical system
+  with no frame history.
+* Rewards are the game's own score: +1 per pipe cleared, plus +0.01
+  per step survived — a *distance* term (constant scroll speed makes
+  steps proportional to distance), pinned by tests. Crashes
+  terminate; the step cap truncates.
+* Baselines: uniform-random (flaps ~50% of steps, scores zero pipes)
+  and a hand-tuned **threshold heuristic** (flap when below the next
+  gap's centre by a margin and not already rising fast).
+* Trains with plain **PPO** — the mask is trivially all-True here, so
+  the mask guard passes a mask-blind algorithm and the run exercises
+  the framework's unmasked path end to end.
+* The cockpit gained an SVG side-view renderer (bird, pipes, ground)
+  and Flappy train presets. See
+  [DESIGN.md](DESIGN.md#continuous-games-m4--a-step-is-a-time-slice).
+
 ## Quickstart
 
 ```bash
@@ -204,6 +232,42 @@ Training: 700,000 steps in 954 s (~734 steps/s, 2-core VM),
 best-by-eval checkpoint selected at a deterministic-eval mean of
 745.4 (a 200-episode window during training; the 1,000-episode
 independent figure above is the headline).
+
+## M4 results — Flappy Bird (mean per episode)
+
+Independent evaluations with the same harness — 1,000 episodes,
+per-episode seeds starting at 1000000, which training never saw.
+Return decomposes exactly as the reward defines it:
+pipes + 0.01 × steps survived.
+
+| Agent | Pipes | Return | ± SEM | Episode length |
+|---|---|---|---|---|
+| Random | 0.00 | 0.26 | 0.00 | 26 steps |
+| **Heuristic** (threshold controller) | 10.64 | 14.29 | 0.40 | 364 steps |
+| **PPO**, 600k steps (best-by-eval) | **67.07** | **87.60** | 1.76 | 2,053 steps |
+
+Honest observations:
+
+* **The time-slice thesis holds.** The continuous game trained,
+  evaluated, and checkpoint-selected through the exact machinery
+  built for turn-based games — no core changes — and the agent
+  learned decisively: 6.3× the pipes of a hand-tuned threshold
+  controller that itself clears ~11 pipes an episode, and ~334×
+  random's return (random scored **zero** pipes in 1,000 episodes).
+* **The derivative did its job.** With velocity in the observation,
+  a plain MLP on a 5-vector learned precise flap timing; no frame
+  stacking was needed anywhere in the pipeline.
+* **Some trained episodes hit the 3,600-step cap** (the max episode
+  length above) — the policy can, on favourable gap sequences, fly
+  to the time limit rather than to a crash.
+
+Training: 600,000 steps in 1,219 s of wall clock on this VM. Raw
+env stepping runs at several thousand steps/s; most of the wall time
+late in training is the periodic 200-episode deterministic
+evaluation, whose episodes stretch past 2,000 steps as the agent
+improves. Best-by-eval checkpoint selected at an in-training eval
+mean of 91.9; the 1,000-episode independent figure above is the
+headline.
 
 ## Post-M1 hardening
 

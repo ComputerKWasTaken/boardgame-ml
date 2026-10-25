@@ -12,6 +12,7 @@ import numpy as np
 
 from boardgame_ml.envs.base import BaseGameEnv
 from boardgame_ml.envs import blackjack as bj
+from boardgame_ml.envs import flappy as fb
 from boardgame_ml.envs import higher_or_lower as hol
 from boardgame_ml.envs import match3 as m3
 
@@ -30,7 +31,7 @@ class RandomAgent(BaselineAgent):
     """Uniform random over currently legal actions."""
 
     name = "random"
-    games = ("blackjack", "higher_or_lower", "match3")
+    games = ("blackjack", "higher_or_lower", "match3", "flappy")
 
     def __init__(self, seed: int | None = None) -> None:
         self._rng = np.random.default_rng(seed)
@@ -144,6 +145,46 @@ class GreedyMatch3Agent(BaselineAgent):
         return best_action
 
 
+class FlappyHeuristicAgent(BaselineAgent):
+    """Threshold controller for Flappy Bird — the learnability yardstick.
+
+    The rule, in full: aim a little *below* the next gap's centre,
+    and flap only when below that aim line and not already rising
+    fast::
+
+        flap  iff  bird_y < gap_centre − 10  and  bird_vy <= 80
+
+    Why these constants (chosen from the physics, lightly tuned by
+    hand, then frozen): a flap sets vy = +300 against gravity
+    −1000 px/s², so from the flap the bird rises
+    300² / (2·1000) = 45 px before falling back. Aiming 10 px below
+    centre puts the oscillation's peak ≈ 35 px above centre —
+    inside the gap's ±38 px of clearance (half the 100 px gap,
+    minus the 12 px bird radius) — and its trough ≈ 27 px below.
+    The vy cap keeps the controller from stacking flaps while
+    already rising, which is the classic way threshold rules pin
+    themselves to the ceiling. It is still a memoryless threshold
+    rule: it cannot anticipate a gap sequence, and its oscillation
+    wastes clearance a learned policy should not. Measured: roughly
+    9–11 pipes per episode (see README's M4 table).
+    """
+
+    name = "flappy_heuristic"
+    games = ("flappy",)
+
+    #: Aim this far below the gap centre (px); flap only at or below
+    #: this upward velocity (px/s). See the class docstring.
+    AIM_BELOW_CENTER = 10.0
+    FLAP_VY_CAP = 80.0
+
+    def select_action(self, env: BaseGameEnv, obs: np.ndarray) -> int:
+        assert isinstance(env, fb.FlappyBirdEnv)
+        target = env.next_pipe().gap_center - self.AIM_BELOW_CENTER
+        if env.bird_y < target and env.bird_vy <= self.FLAP_VY_CAP:
+            return fb.FLAP
+        return fb.GLIDE
+
+
 BASELINES: dict[str, type[BaselineAgent]] = {
     cls.name: cls
     for cls in (
@@ -151,6 +192,7 @@ BASELINES: dict[str, type[BaselineAgent]] = {
         BasicStrategyAgent,
         ProbabilityAgent,
         GreedyMatch3Agent,
+        FlappyHeuristicAgent,
     )
 }
 

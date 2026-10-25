@@ -34,6 +34,7 @@ ACTION_NAMES = {
     "blackjack": {0: "STAND", 1: "HIT"},
     "higher_or_lower": {0: "HIGHER", 1: "LOWER", 2: "HOLD"},
     "match3": _match3_action_names(),
+    "flappy": {0: "GLIDE", 1: "FLAP"},
 }
 
 

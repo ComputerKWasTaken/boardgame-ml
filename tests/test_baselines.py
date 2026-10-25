@@ -5,11 +5,13 @@ import numpy as np
 
 from boardgame_ml.agents.baselines import (
     BasicStrategyAgent,
+    FlappyHeuristicAgent,
     GreedyMatch3Agent,
     ProbabilityAgent,
     RandomAgent,
 )
 from boardgame_ml.envs.blackjack import BlackjackEnv, HIT, STAND
+from boardgame_ml.envs.flappy import FLAP, GLIDE, FlappyBirdEnv, Pipe
 from boardgame_ml.envs.higher_or_lower import HigherOrLowerEnv, HIGHER, LOWER
 from boardgame_ml.envs.match3 import (
     Match3Env,
@@ -119,3 +121,57 @@ def test_greedy_match3_beats_random_pointwise_smoke():
     action = agent.select_action(env, None)
     _obs, reward, _t, _tr, _i = env.step(action)
     assert reward >= 10
+
+
+def _flappy_with(bird_y, bird_vy, gap_bottom, gap_top):
+    env = FlappyBirdEnv()
+    env.reset(seed=0)
+    env.bird_y = bird_y
+    env.bird_vy = bird_vy
+    env.pipes = [
+        Pipe(x=200.0, gap_bottom=float(gap_bottom), gap_top=float(gap_top))
+    ]
+    return env
+
+
+def test_flappy_heuristic_flaps_when_below_the_aim_line():
+    agent = FlappyHeuristicAgent()
+    # Gap centred at 450; bird at 256 is far below the aim line.
+    assert agent.select_action(_flappy_with(256, 0, 400, 500), None) == FLAP
+
+
+def test_flappy_heuristic_glides_when_above_the_aim_line():
+    agent = FlappyHeuristicAgent()
+    # Gap centred at 100; bird at 256 is well above it — let gravity work.
+    assert agent.select_action(_flappy_with(256, 0, 50, 150), None) == GLIDE
+
+
+def test_flappy_heuristic_does_not_stack_flaps_while_rising_fast():
+    agent = FlappyHeuristicAgent()
+    # Below the aim line but already rising faster than the cap:
+    # gliding avoids the ceiling-pinning failure mode.
+    assert agent.select_action(_flappy_with(256, 200, 400, 500), None) == GLIDE
+
+
+def test_flappy_heuristic_beats_random():
+    """The yardstick must clear the floor by a wide margin on a fixed
+    seed batch: heuristic ~9-11 pipes/episode, random ~0."""
+
+    def mean_score(agent, episodes=100, seed0=9000):
+        env = FlappyBirdEnv()
+        total = 0
+        for ep in range(episodes):
+            obs, _ = env.reset(seed=seed0 + ep)
+            done = False
+            while not done:
+                obs, _r, terminated, truncated, _i = env.step(
+                    agent.select_action(env, obs)
+                )
+                done = terminated or truncated
+            total += env.score
+        return total / episodes
+
+    heuristic_mean = mean_score(FlappyHeuristicAgent())
+    random_mean = mean_score(RandomAgent(seed=1))
+    assert heuristic_mean >= 3.0
+    assert heuristic_mean > random_mean + 3.0

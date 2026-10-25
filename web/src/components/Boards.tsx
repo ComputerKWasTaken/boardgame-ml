@@ -2,6 +2,7 @@
 
 import type {
   BlackjackRender,
+  FlappyRender,
   HolRender,
   Match3Render,
   RenderState,
@@ -160,6 +161,62 @@ export function Match3Board({ render }: { render: Match3Render }) {
   );
 }
 
+export function FlappyBoard({ render }: { render: FlappyRender }) {
+  const { width, height } = render;
+  // World coords have y up from the ground; SVG has y down. Flip the
+  // whole scene with one transform and draw in world coordinates.
+  return (
+    <div className="board flappy-board">
+      <div className="match3-header">
+        <div>
+          Score <strong>{render.score}</strong>
+        </div>
+        <div>
+          Steps <strong>{render.steps}</strong>
+        </div>
+        <div>
+          vy <strong>{render.bird_vy > 0 ? `+${Math.round(render.bird_vy)}` : Math.round(render.bird_vy)}</strong>
+        </div>
+      </div>
+      <svg
+        className="flappy-svg"
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label="Flappy Bird scene"
+      >
+        <rect x={0} y={0} width={width} height={height} className="flappy-sky" />
+        <g transform={`translate(0 ${height}) scale(1 -1)`}>
+          {render.pipes.map((p, i) => (
+            <g key={i}>
+              <rect
+                x={p.x}
+                y={0}
+                width={p.width}
+                height={p.gap_bottom}
+                className="flappy-pipe"
+              />
+              <rect
+                x={p.x}
+                y={p.gap_top}
+                width={p.width}
+                height={height - p.gap_top}
+                className="flappy-pipe"
+              />
+            </g>
+          ))}
+          <line x1={0} y1={0} x2={width} y2={0} className="flappy-ground" />
+          <circle
+            cx={render.bird_x}
+            cy={render.bird_y}
+            r={render.bird_radius}
+            className="flappy-bird"
+          />
+        </g>
+      </svg>
+    </div>
+  );
+}
+
 export default function Board({ render }: { render: RenderState }) {
   if (render.game === "blackjack") {
     return <BlackjackBoard render={render as BlackjackRender} />;
@@ -169,6 +226,9 @@ export default function Board({ render }: { render: RenderState }) {
   }
   if (render.game === "match3") {
     return <Match3Board render={render as Match3Render} />;
+  }
+  if (render.game === "flappy") {
+    return <FlappyBoard render={render as FlappyRender} />;
   }
   return (
     <div className="board">

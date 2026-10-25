@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import Any
 
 from boardgame_ml.envs import blackjack as bj
+from boardgame_ml.envs import flappy as fb
 from boardgame_ml.envs import higher_or_lower as hol
 
 
@@ -63,10 +64,37 @@ def _match3(env, info: dict, reveal: bool) -> dict:
     }
 
 
+def _flappy(env, info: dict, reveal: bool) -> dict:
+    # World coordinates as the env keeps them (y up from the ground);
+    # the frontend's SVG flips the axis when drawing. The bird's x is
+    # fixed — the world scrolls past it — so pipes carry positions.
+    return {
+        "bird_x": fb.BIRD_X,
+        "bird_y": env.bird_y,
+        "bird_vy": env.bird_vy,
+        "bird_radius": fb.BIRD_RADIUS,
+        "pipes": [
+            {
+                "x": p.x,
+                "width": fb.PIPE_WIDTH,
+                "gap_top": p.gap_top,
+                "gap_bottom": p.gap_bottom,
+                "scored": p.scored,
+            }
+            for p in env.pipes
+        ],
+        "score": env.score,
+        "steps": env.steps,
+        "width": fb.WORLD_WIDTH,
+        "height": fb.WORLD_HEIGHT,
+    }
+
+
 _BUILDERS = {
     "blackjack": _blackjack,
     "higher_or_lower": _higher_or_lower,
     "match3": _match3,
+    "flappy": _flappy,
 }
 
 

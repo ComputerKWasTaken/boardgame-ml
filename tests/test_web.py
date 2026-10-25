@@ -73,7 +73,7 @@ def client(fixture_runs):
 def test_games_endpoint(client):
     games = client.get("/api/games").json()
     by_name = {g["name"]: g for g in games}
-    assert set(by_name) == {"blackjack", "higher_or_lower", "match3"}
+    assert set(by_name) == {"blackjack", "higher_or_lower", "match3", "flappy"}
     bj = by_name["blackjack"]
     assert [a["name"] for a in bj["actions"]] == ["STAND", "HIT"]
     baseline_names = {b["name"] for b in bj["baselines"]}

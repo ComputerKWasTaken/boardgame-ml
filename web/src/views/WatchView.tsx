@@ -4,6 +4,7 @@ import Board from "../components/Boards";
 import { store } from "../storage";
 import type {
   BlackjackRender,
+  FlappyRender,
   HolRender,
   Match3Render,
   Replay,
@@ -37,6 +38,10 @@ function feedLine(ev: WatchEvent): string {
     const r = ev.render as Match3Render;
     const casc = r.last_move && r.last_move.cascades > 1 ? ` · cascade ×${r.last_move.cascades}` : "";
     return `${head} (${fmt(ev.reward ?? 0)}) — score ${r.score} · ${r.moves_left} moves left${casc}`;
+  }
+  if (ev.game === "flappy" && ev.render) {
+    const r = ev.render as FlappyRender;
+    return `${head} (${fmt(ev.reward ?? 0)}) — score ${r.score} · bird at y ${Math.round(r.bird_y)}`;
   }
   return `${head} (${fmt(ev.reward ?? 0)})`;
 }

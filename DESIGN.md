@@ -228,11 +228,94 @@ objective. The baseline stays, documented as what it is: the claim
 M3 tests is *learnability* — a trained agent decisively beating
 random — not superhuman play.
 
+## Continuous games (M4) — a step is a time slice
+
+Flappy Bird (`envs/flappy.py`) is the framework's first game whose
+world moves in continuous time. Nothing in the core changed to admit
+it: the experiment was whether the existing contract already *was* a
+continuous-time contract. It was. A Gymnasium `step` was never a
+turn — it is a **time slice**, and the turn-based games are just the
+degenerate case where the world does nothing between decisions.
+
+**The time-slice model.** The agent decides once per step; one step
+advances the world by `dt` seconds (Flappy: 0.05 s = 20 decisions/s).
+Inside the step, physics integrates with semi-implicit Euler in
+`physics_substeps` substeps of `dt / physics_substeps`. Substeps
+refine the *integration*; they never change the decision rate, and
+the env validates `dt > 0`, `physics_substeps >= 1` at construction.
+`dt`, substeps, gravity, flap velocity, pipe speed/gap/spacing all
+arrive through the existing `env_kwargs` seam. Randomness (gap
+placement) still comes only from the env's seeded RNG, so an episode
+remains a deterministic function of (seed, actions) — the contract
+tests check this for Flappy exactly as for the turn-based games.
+
+**Derivatives in the observation, not frame stacking.** A snapshot
+of positions is not a Markov state for a dynamical system: it hides
+velocity. The Atari-era fix — stack the last k frames and let the
+policy infer motion — spends model capacity re-deriving a quantity
+the simulator already knows. Instead the observation *contains* the
+derivative: Flappy's 5-vector is bird height, **vertical velocity**,
+horizontal distance to the next pipe, and the next gap's top and
+bottom edges, all normalized. Position + velocity + target geometry
+is the full state of the dynamics, so a plain MLP sees everything a
+frame stack would have to infer. Rule of thumb for future games:
+ship the derivatives (velocities, angular rates, accelerations if
+the dynamics need them), not the history.
+
+**Reward and ending mapping.** The same honesty rules apply,
+translated: rewards stay the game's *intrinsic* score. Flappy pays
++1.0 per pipe cleared (its displayed score) plus +0.01 per step
+survived — a distance term, legitimate here because the world
+scrolls at constant speed, so steps survived are exactly
+proportional to distance travelled, a score this genre keeps; it
+cannot be farmed except by not crashing while pipes keep coming,
+and at 0.01/step it stays subordinate to the pipe point (0.3 per
+pipe interval). The decomposition is pinned by tests. Endings keep
+the contract's semantics: a crash is a genuine **termination**; the
+step cap is a time limit, hence a **truncation**.
+
+**Masks go quiet.** Both actions are always legal, so the mask is
+trivially all-True and the mask guard passes a mask-blind algorithm:
+Flappy therefore trains with plain **PPO**, exercising the
+framework's unmasked path (standard `EvalCallback`) end to end —
+the same guard that refused unmasked algorithms for Match 3
+approving one here is the guard working, not being bypassed. The
+hand yardstick is a threshold controller (flap when below the next
+gap's centre by a margin and not already rising fast), documented
+with its constants in `agents/baselines.py`.
+
+**Measured** (independent eval, 1,000 episodes on seeds training
+never saw; README's M4 table): PPO scores 67.1 ± 1.4 pipes per
+episode against the heuristic's 10.6 ± 0.3 and random's 0.0 —
+random did not clear a single pipe in 1,000 episodes — with mean
+episode length 2,053 steps against the heuristic's 364. Some
+trained episodes run to the 3,600-step cap: on favourable gap
+sequences the policy flies to the time limit, not to a crash.
+
+**What this implies for a racing game.** The remaining step is
+continuous *actions*, and the seams are already shaped for it: the
+contract never assumed `Discrete` (only the baselines and the text
+renderer do, per game), so a `Box` action space (steering, throttle)
+slots into the same env shape. The algorithm consequence is real,
+though: masking has no continuous analogue, so the mask guard's
+all-True route becomes the only route, and the algorithm menu moves
+to continuous-control methods — PPO handles `Box` natively; SAC/TD3
+would join the registry in `training/algorithms.py`. The observation
+lesson carries over with interest: a racer needs derivatives *and*
+lookahead — position, velocity, heading rate, plus raycast-style
+track geometry (distances to walls ahead), the spatial analogue of
+Flappy's "distance to next pipe + gap edges". Reward stays intrinsic
+(checkpoints/lap progress, the genre's own score), crashes
+terminate, the lap timer truncates.
+
 ## Roadmap beyond M1
 
 * More games behind the same contract (the real test of modularity)
-  — Match 3 landed in M3 (see above); a multi-player game via a
-  PettingZoo-style wrapper is the remaining frontier.
+  — Match 3 landed in M3 (see above); Flappy Bird landed in M4 as
+  the first continuous-dynamics game (see "Continuous games"); a
+  multi-player game via a PettingZoo-style wrapper and a
+  continuous-*action* game (racing: `Box` actions, PPO/SAC) are the
+  remaining frontiers.
 * ~~Graphical watch viewer~~ — **done**: the web cockpit
   (`src/boardgame_ml/web/` + `web/`) serves a local React UI from
   the same process as its FastAPI backend. It consumes the framework

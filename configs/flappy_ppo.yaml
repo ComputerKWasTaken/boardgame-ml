@@ -1,0 +1,24 @@
+# Flappy Bird (M4) — the first continuous-dynamics game, and the
+# first config to use plain PPO. Flappy's mask is trivially all-True
+# (both actions are always legal), so the mask guard legitimately
+# passes a mask-blind algorithm: this run exercises the framework's
+# non-maskable path (standard EvalCallback, unmasked predictions)
+# end to end, exactly as the guard was designed to allow. The game
+# itself is stock defaults — world geometry and physics are the
+# env's documented constants, no env_kwargs needed.
+game: flappy
+algorithm: ppo
+total_timesteps: 600000
+seed: 0
+n_envs: 8
+learning_rate: 0.0003
+gamma: 0.99
+eval_episodes: 200
+eval_freq: 25000
+output_dir: runs
+hyperparams:
+  n_steps: 256
+  batch_size: 512
+  n_epochs: 4
+  ent_coef: 0.01
+  gae_lambda: 0.95

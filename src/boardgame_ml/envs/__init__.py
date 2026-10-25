@@ -6,6 +6,7 @@ from typing import Any
 
 from boardgame_ml.envs.base import BaseGameEnv
 from boardgame_ml.envs.blackjack import BlackjackEnv
+from boardgame_ml.envs.flappy import FlappyBirdEnv
 from boardgame_ml.envs.higher_or_lower import HigherOrLowerEnv
 from boardgame_ml.envs.match3 import Match3Env
 
@@ -13,6 +14,7 @@ GAMES: dict[str, type[BaseGameEnv]] = {
     "blackjack": BlackjackEnv,
     "higher_or_lower": HigherOrLowerEnv,
     "match3": Match3Env,
+    "flappy": FlappyBirdEnv,
 }
 
 
@@ -30,6 +32,7 @@ __all__ = [
     "BlackjackEnv",
     "HigherOrLowerEnv",
     "Match3Env",
+    "FlappyBirdEnv",
     "GAMES",
     "make_env",
 ]

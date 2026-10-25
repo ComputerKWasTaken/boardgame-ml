@@ -661,3 +661,33 @@ th {
   padding: 0.1em 0.4em;
   border-radius: 5px;
 }
+
+/* Flappy Bird scene (SVG, world coords flipped by the component). */
+.flappy-svg {
+  width: 100%;
+  max-width: 340px;
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.flappy-sky {
+  fill: #0d2233;
+}
+
+.flappy-pipe {
+  fill: #3fa45b;
+  stroke: #256b3a;
+  stroke-width: 2;
+}
+
+.flappy-ground {
+  stroke: var(--muted);
+  stroke-width: 3;
+}
+
+.flappy-bird {
+  fill: #f2b632;
+  stroke: #8a6410;
+  stroke-width: 2;
+}

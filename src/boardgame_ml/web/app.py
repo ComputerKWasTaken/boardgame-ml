@@ -64,6 +64,18 @@ GAME_INFO: dict[str, dict[str, str]] = {
         "own score (a matched component of 3/4/5/6+ gems scores "
         "10/25/50/100, times the cascade level).",
     },
+    "flappy": {
+        "display_name": "Flappy Bird",
+        "observation": (
+            "Bird height · vertical velocity · distance to next "
+            "pipe · its gap edges (normalized)"
+        ),
+        "blurb": "The first continuous game: the world scrolls at "
+        "20 decisions per second and the agent only chooses flap or "
+        "glide. Velocity is in the observation, so no frame stacking "
+        "is needed. +1 per pipe cleared, +0.01 per step of distance; "
+        "crashing ends the episode.",
+    },
 }
 
 _BASE_STEP_SECONDS = 0.9  # watch-mode step interval at speed 1
