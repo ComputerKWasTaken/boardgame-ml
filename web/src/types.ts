@@ -54,6 +54,7 @@ export interface PairDefaults {
   n_envs: number;
   learning_rate: number;
   hyperparams: Record<string, unknown>;
+  self_play: Record<string, unknown>;
 }
 
 export interface MetaInfo {
@@ -186,12 +187,26 @@ export interface RacingRender {
   steps: number;
 }
 
+export interface ConnectFourRender {
+  game: "connect_four";
+  text?: string;
+  board: number[][]; // 0 empty, 1 = player 0 (red), 2 = player 1 (yellow)
+  rows: number;
+  cols: number;
+  current_player: number;
+  winner: number | null;
+  last_move: number | null;
+  moves_played: number;
+  game_over: boolean;
+}
+
 export type RenderState =
   | BlackjackRender
   | HolRender
   | Match3Render
   | FlappyRender
   | RacingRender
+  | ConnectFourRender
   | { game: string; text?: string };
 
 export interface SessionStats {
@@ -208,6 +223,7 @@ export interface WatchEvent {
   session_id?: string;
   game: string;
   agent?: string;
+  opponent?: string | null;
   episode: number;
   step_in_episode?: number;
   action?: number | number[];
@@ -230,8 +246,9 @@ export interface Replay {
   events: WatchEvent[];
 }
 
-/** What the Watch view should show. */
+/** What the Watch view should show. ``opponent`` is a baseline name
+ * for seat 1 of a two-player game; omitted = mirror match. */
 export type WatchTarget =
-  | { kind: "run"; runId: string; checkpoint: string; nonce: number }
-  | { kind: "baseline"; game: string; agent: string; nonce: number }
+  | { kind: "run"; runId: string; checkpoint: string; opponent?: string; nonce: number }
+  | { kind: "baseline"; game: string; agent: string; opponent?: string; nonce: number }
   | { kind: "replay"; replayId: string; nonce: number };

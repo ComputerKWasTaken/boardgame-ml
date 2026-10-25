@@ -58,6 +58,13 @@ class ExperimentConfig:
     # Algorithm-specific kwargs (n_steps, batch_size, buffer_size, ...)
     # passed verbatim to the SB3 constructor.
     hyperparams: dict[str, Any] = field(default_factory=dict)
+    # Self-play league settings for two-player games (M6): when
+    # non-empty, the trainer wraps the game in
+    # training.self_play.SelfPlayWrapper and populates an opponent
+    # pool from these keys (SelfPlayConfig validates them). Empty
+    # for every single-agent game. Requires the game to be a
+    # two-player game — the trainer refuses the combination loudly.
+    self_play: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         # Fail fast, at load time, with errors that name the problem —
@@ -115,4 +122,5 @@ class ExperimentConfig:
             "eval_freq": self.eval_freq,
             "output_dir": self.output_dir,
             "hyperparams": dict(self.hyperparams),
+            "self_play": dict(self.self_play),
         }

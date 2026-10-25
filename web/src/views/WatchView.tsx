@@ -4,6 +4,7 @@ import Board from "../components/Boards";
 import { store } from "../storage";
 import type {
   BlackjackRender,
+  ConnectFourRender,
   FlappyRender,
   HolRender,
   Match3Render,
@@ -47,6 +48,15 @@ function feedLine(ev: WatchEvent): string {
   if (ev.game === "racing" && ev.render) {
     const r = ev.render as RacingRender;
     return `${head} (${fmt(ev.reward ?? 0)}) — lap ${r.laps + 1} · ${Math.round(r.progress_fraction * 100)}% · ${Math.round(r.speed * 3.6)} km/h`;
+  }
+  if (ev.game === "connect_four" && ev.render) {
+    const r = ev.render as ConnectFourRender;
+    const state = r.game_over
+      ? r.winner !== null
+        ? `player ${r.winner + 1} wins`
+        : "draw"
+      : `player ${r.current_player + 1} to move`;
+    return `${head} — move ${r.moves_played} · ${state}`;
   }
   return `${head} (${fmt(ev.reward ?? 0)})`;
 }
@@ -129,6 +139,7 @@ function LiveWatch({ target }: { target: WatchTarget }) {
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [label, setLabel] = useState("");
+  const [opponentLabel, setOpponentLabel] = useState<string | null>(null);
   const [game, setGame] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -148,11 +159,18 @@ function LiveWatch({ target }: { target: WatchTarget }) {
         : target.kind === "baseline"
           ? { game: target.game, agent: target.agent, seed: 0 }
           : {};
+    if (
+      (target.kind === "run" || target.kind === "baseline") &&
+      target.opponent
+    ) {
+      body.opponent = target.opponent;
+    }
     api
       .startWatch(body)
       .then((resp) => {
         if (cancelled) return;
         setLabel(resp.agent);
+        setOpponentLabel(resp.opponent);
         setGame(resp.game);
         applyEvent(resp.initial);
         logRef.current = [resp.initial];
@@ -223,7 +241,10 @@ function LiveWatch({ target }: { target: WatchTarget }) {
     <div className="watch-layout">
       <div className="panel">
         <div className="watch-head">
-          <strong>{label || "Connecting…"}</strong>
+          <strong>
+            {label || "Connecting…"}
+            {opponentLabel ? ` vs ${opponentLabel}` : ""}
+          </strong>
           {error && <span className="error-box">{error}</span>}
         </div>
         {render && <Board render={render} />}
@@ -365,10 +386,46 @@ interface Props {
   onWatch: (t: WatchTarget) => void;
 }
 
+/** Games with two seats (mirrors the backend's TWO_PLAYER_GAMES). */
+const TWO_PLAYER_GAMES = new Set(["connect_four"]);
+
+/** Seat-1 picker for a two-player entry: mirror (same agent both
+ * seats) or any of the game's baselines. ``value`` "" = mirror. */
+function OpponentSelect({
+  game,
+  games,
+  value,
+  onChange,
+}: {
+  game: string;
+  games: GameInfo[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  if (!TWO_PLAYER_GAMES.has(game)) return null;
+  const baselines = games.find((g) => g.name === game)?.baselines ?? [];
+  return (
+    <select
+      className="opponent-select"
+      aria-label="Opponent for seat 2"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      <option value="">vs mirror</option>
+      {baselines.map((b) => (
+        <option key={b.name} value={b.name}>
+          vs {b.name}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 export default function WatchView({ target, onWatch }: Props) {
   const [runs, setRuns] = useState<RunEntry[]>([]);
   const [games, setGames] = useState<GameInfo[]>([]);
   const [replays, setReplays] = useState<Replay[]>(store.replays.get());
+  const [opponents, setOpponents] = useState<Record<string, string>>({});
 
   useEffect(() => {
     Promise.all([api.runs(), api.games()])
@@ -408,21 +465,38 @@ export default function WatchView({ target, onWatch }: Props) {
               .map((r) => (
                 <li key={r.run_id}>
                   <span className="mono">{r.run_id}</span>
-                  <button
-                    className="btn small"
-                    onClick={() =>
-                      onWatch({
-                        kind: "run",
-                        runId: r.run_id,
-                        checkpoint: r.checkpoints.includes("best_model.zip")
-                          ? "best_model"
-                          : "final_model",
-                        nonce: Date.now(),
-                      })
-                    }
-                  >
-                    Watch
-                  </button>
+                  <span>
+                    {r.game && (
+                      <OpponentSelect
+                        game={r.game}
+                        games={games}
+                        value={opponents[`run:${r.run_id}`] ?? ""}
+                        onChange={(v) =>
+                          setOpponents((o) => ({
+                            ...o,
+                            [`run:${r.run_id}`]: v,
+                          }))
+                        }
+                      />
+                    )}
+                    <button
+                      className="btn small"
+                      onClick={() =>
+                        onWatch({
+                          kind: "run",
+                          runId: r.run_id,
+                          checkpoint: r.checkpoints.includes("best_model.zip")
+                            ? "best_model"
+                            : "final_model",
+                          opponent:
+                            opponents[`run:${r.run_id}`] || undefined,
+                          nonce: Date.now(),
+                        })
+                      }
+                    >
+                      Watch
+                    </button>
+                  </span>
                 </li>
               ))}
           </ul>
@@ -434,19 +508,35 @@ export default function WatchView({ target, onWatch }: Props) {
                   <span>
                     {g.display_name} · {b.name}
                   </span>
-                  <button
-                    className="btn small"
-                    onClick={() =>
-                      onWatch({
-                        kind: "baseline",
-                        game: g.name,
-                        agent: b.name,
-                        nonce: Date.now(),
-                      })
-                    }
-                  >
-                    Watch
-                  </button>
+                  <span>
+                    <OpponentSelect
+                      game={g.name}
+                      games={games}
+                      value={opponents[`base:${g.name}:${b.name}`] ?? ""}
+                      onChange={(v) =>
+                        setOpponents((o) => ({
+                          ...o,
+                          [`base:${g.name}:${b.name}`]: v,
+                        }))
+                      }
+                    />
+                    <button
+                      className="btn small"
+                      onClick={() =>
+                        onWatch({
+                          kind: "baseline",
+                          game: g.name,
+                          agent: b.name,
+                          opponent:
+                            opponents[`base:${g.name}:${b.name}`] ||
+                            undefined,
+                          nonce: Date.now(),
+                        })
+                      }
+                    >
+                      Watch
+                    </button>
+                  </span>
                 </li>
               )),
             )}

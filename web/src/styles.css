@@ -756,3 +756,47 @@ th {
   stroke: #ffffff;
   stroke-width: 0.4;
 }
+
+
+/* Connect Four board (M6): the classic blue rack, red/yellow discs. */
+.connect-four-grid {
+  display: grid;
+  gap: 4px;
+  background: #2456a6;
+  padding: 8px;
+  border-radius: 8px;
+  max-width: 380px;
+}
+
+.connect-four-cell {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.connect-four-disc {
+  width: 88%;
+  height: 88%;
+  border-radius: 50%;
+  background: #0d1117;
+  box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.35);
+}
+
+.connect-four-disc.p0 {
+  background: #e5534b;
+}
+
+.connect-four-disc.p1 {
+  background: #e3b341;
+}
+
+.connect-four-disc.last {
+  box-shadow:
+    inset 0 0 0 2px rgba(0, 0, 0, 0.35),
+    0 0 0 2px #fff;
+}
+
+.opponent-select {
+  margin-right: 0.4rem;
+}

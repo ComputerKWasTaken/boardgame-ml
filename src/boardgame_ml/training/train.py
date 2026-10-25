@@ -39,10 +39,18 @@ from stable_baselines3.common.callbacks import BaseCallback, EvalCallback
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv
 
-from boardgame_ml.envs import make_env
+from boardgame_ml.agents.baselines import get_baseline
+from boardgame_ml.envs import TWO_PLAYER_GAMES, make_env
 from boardgame_ml.envs.base import validate_mask
+from boardgame_ml.envs.two_player import TwoPlayerEnv
 from boardgame_ml.training.algorithms import MODEL_CLASSES, ensure_mask_compatible
 from boardgame_ml.training.config import ExperimentConfig
+from boardgame_ml.training.self_play import (
+    OpponentPool,
+    SelfPlayConfig,
+    SelfPlayWrapper,
+    SnapshotCallback,
+)
 
 
 def mask_fn(env: gym.Env) -> np.ndarray:
@@ -88,6 +96,47 @@ def _maybe_mask(env: gym.Env) -> gym.Env:
     return env
 
 
+def _maybe_wrap_self_play(
+    env: gym.Env,
+    game: str,
+    self_play_cfg: SelfPlayConfig | None,
+    *,
+    seed: int,
+    pools: list[OpponentPool] | None = None,
+    fixed_opponent=None,
+    fixed_opponent_kind: str = "fixed",
+) -> gym.Env:
+    """Wrap a two-player game for self-play when the config asks.
+
+    Training envs get a league-backed wrapper (each vec slot its own
+    :class:`OpponentPool` over the shared snapshot files, registered
+    into ``pools`` so the SnapshotCallback can feed them all). The
+    eval env gets a wrapper with one *fixed* opponent — the game's
+    heuristic baseline — so the eval curve and best-by-eval selection
+    measure the learner against a constant yardstick, not a moving
+    league. Single-agent configs pass through untouched.
+    """
+    if self_play_cfg is None:
+        return env
+    raw = env.unwrapped
+    if not isinstance(raw, TwoPlayerEnv):
+        raise ValueError(
+            f"Config sets self_play for game {game!r}, which is not a "
+            "two-player game; self-play settings apply only to "
+            f"{sorted(TWO_PLAYER_GAMES)}"
+        )
+    if fixed_opponent is not None:
+        return SelfPlayWrapper(
+            env,
+            fixed_opponent=fixed_opponent,
+            fixed_opponent_kind=fixed_opponent_kind,
+        )
+    pool = OpponentPool(game, self_play_cfg, seed=seed)
+    if pools is not None:
+        pools.append(pool)
+    return SelfPlayWrapper(env, pool)
+
+
 def build_single_env(
     game: str, *, monitor: bool = True, env_kwargs: dict | None = None
 ) -> gym.Env:
@@ -99,11 +148,24 @@ def build_single_env(
 
 
 def build_vec_env(
-    game: str, n_envs: int, seed: int, env_kwargs: dict | None = None
+    game: str,
+    n_envs: int,
+    seed: int,
+    env_kwargs: dict | None = None,
+    *,
+    self_play_cfg: SelfPlayConfig | None = None,
+    pools: list[OpponentPool] | None = None,
 ) -> DummyVecEnv:
     def make(rank: int):
         def _init() -> gym.Env:
-            env = Monitor(make_env(game, **(env_kwargs or {})))
+            env = _maybe_wrap_self_play(
+                make_env(game, **(env_kwargs or {})),
+                game,
+                self_play_cfg,
+                seed=seed + rank,
+                pools=pools,
+            )
+            env = Monitor(env)
             return _maybe_mask(env)
 
         return _init
@@ -149,6 +211,39 @@ class EpisodeReturnLogger(BaseCallback):
         self._fh.close()
 
 
+def _build_eval_env(
+    config: ExperimentConfig,
+    self_play_cfg: SelfPlayConfig | None,
+) -> DummyVecEnv:
+    """The held-out eval env: single, separately seeded.
+
+    For self-play configs the learner faces one fixed opponent — the
+    game's heuristic baseline — on both seats (the wrapper randomizes
+    the learner's seat per episode), so the eval mean return is a
+    *win-rate-like* number against a constant yardstick: -1 is
+    always losing, +1 is always winning, and best-by-eval selects
+    for beating it from both chairs.
+    """
+    seed = config.seed + 10_000
+    if self_play_cfg is None:
+        return build_vec_env(
+            config.game, 1, seed, env_kwargs=config.env_kwargs
+        )
+    heuristic = get_baseline(self_play_cfg.heuristic, config.game)
+
+    def _init() -> gym.Env:
+        env = SelfPlayWrapper(
+            make_env(config.game, **config.env_kwargs),
+            fixed_opponent=heuristic,
+            fixed_opponent_kind="eval_heuristic",
+        )
+        return _maybe_mask(Monitor(env))
+
+    vec = DummyVecEnv([_init])
+    vec.seed(seed)
+    return vec
+
+
 def train(
     config: ExperimentConfig,
     *,
@@ -172,18 +267,32 @@ def train(
         env_kwargs=config.env_kwargs,
     )
 
+    self_play_cfg = (
+        SelfPlayConfig.from_dict(config.self_play) if config.self_play else None
+    )
+    if self_play_cfg is not None and config.game not in TWO_PLAYER_GAMES:
+        raise ValueError(
+            f"Config sets self_play for game {config.game!r}, which is "
+            "not a two-player game; self-play settings apply only to "
+            f"{sorted(TWO_PLAYER_GAMES)}"
+        )
+
     run_dir = (
         Path(config.output_dir)
         / f"{config.game}_{config.algorithm}_s{config.seed}_{config_hash(config)}"
     )
     run_dir.mkdir(parents=True, exist_ok=True)
 
+    pools: list[OpponentPool] = []
     train_env = build_vec_env(
-        config.game, config.n_envs, config.seed, env_kwargs=config.env_kwargs
+        config.game,
+        config.n_envs,
+        config.seed,
+        env_kwargs=config.env_kwargs,
+        self_play_cfg=self_play_cfg,
+        pools=pools,
     )
-    eval_env = build_vec_env(
-        config.game, 1, config.seed + 10_000, env_kwargs=config.env_kwargs
-    )
+    eval_env = _build_eval_env(config, self_play_cfg)
 
     model = build_model(config, train_env)
 
@@ -210,11 +319,15 @@ def train(
         verbose=0,
     )
     logger = EpisodeReturnLogger(run_dir / "train_log.csv")
+    callbacks: list[BaseCallback] = [eval_callback, logger]
+    if self_play_cfg is not None:
+        callbacks.append(SnapshotCallback(pools, run_dir, self_play_cfg))
+    callbacks.extend(extra_callbacks or [])
 
     start = time.time()
     model.learn(
         total_timesteps=config.total_timesteps,
-        callback=[eval_callback, logger, *(extra_callbacks or [])],
+        callback=callbacks,
     )
     elapsed = time.time() - start
     logger.close()
@@ -237,6 +350,14 @@ def train(
         "final_model": str(run_dir / "final_model.zip"),
         "train_seconds": round(elapsed, 1),
     }
+    if self_play_cfg is not None:
+        pool_dir = run_dir / "pool"
+        summary["pool_snapshots"] = (
+            sorted(p.name for p in pool_dir.glob("*.zip"))
+            if pool_dir.is_dir()
+            else []
+        )
+        summary["self_play"] = self_play_cfg.to_dict()
     (run_dir / "summary.json").write_text(json.dumps(summary, indent=2))
     train_env.close()
     eval_env.close()

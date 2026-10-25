@@ -79,6 +79,7 @@ def test_games_endpoint(client):
         "match3",
         "flappy",
         "racing",
+        "connect_four",
     }
     bj = by_name["blackjack"]
     assert [a["name"] for a in bj["actions"]] == ["STAND", "HIT"]
@@ -119,6 +120,24 @@ def test_games_endpoint(client):
         by_baseline["racing_heuristic"]["mean_return"]
         > by_baseline["random"]["mean_return"] + 500.0
     )
+
+    c4 = by_name["connect_four"]
+    assert c4["display_name"] == "Connect Four"
+    assert [a["name"] for a in c4["actions"]] == [
+        f"column {i}" for i in range(1, 8)
+    ]
+    assert {b["name"] for b in c4["baselines"]} == {
+        "random",
+        "connect_four_greedy",
+        "connect_four_greedy_noisy",
+        "connect_four_minimax",
+    }
+    for b in c4["baselines"]:
+        # Two-player self-matches, 10 per baseline (see web/app.py):
+        # a "return" is +1 for a decisive game, 0 for a draw, from
+        # whichever seat made the winning move.
+        assert b["episodes"] == 10
+        assert 0.0 <= b["mean_return"] <= 1.0
 
 
 def test_runs_endpoints(client):
@@ -334,3 +353,70 @@ def test_frontend_served_when_built(fixture_runs, tmp_path, monkeypatch):
     # SPA fallback serves index for client-side routes, not for /api.
     assert "cockpit" in built.get("/some/route").text
     assert built.get("/api/definitely-not-a-route").status_code == 404
+
+
+def test_watch_two_player_session_with_named_opponent(client):
+    """Connect Four session: greedy (seat 0) vs minimax (seat 1).
+
+    Steps must alternate seats -- each step event's render shows the
+    board growing by one disc, the player to move flips, and the
+    game reaches a winner (minimax, from either seat, at smoke
+    scale). The render payload is the absolute board the frontend
+    draws (0 empty / 1 red / 2 yellow).
+    """
+    resp = client.post(
+        "/api/watch",
+        json={
+            "game": "connect_four",
+            "agent": "connect_four_greedy",
+            "opponent": "connect_four_minimax",
+            "seed": 2,
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["agent"] == "connect_four_greedy"
+    assert body["opponent"] == "connect_four_minimax"
+    render = body["initial"]["render"]
+    assert render["game"] == "connect_four"
+    assert render["current_player"] == 0
+    assert render["winner"] is None
+    assert all(v == 0 for row in render["board"] for v in row)
+
+    session_id = body["session_id"]
+    final_render = None
+    with client.websocket_connect(f"/api/watch/{session_id}") as ws:
+        for _ in range(45):
+            ws.send_json({"cmd": "step"})
+            while True:
+                event = ws.receive_json()
+                if event["type"] == "step":
+                    final_render = event["render"]
+                    break
+                if event["type"] == "episode_end":
+                    break
+            if final_render and final_render["game_over"]:
+                break
+    assert final_render is not None and final_render["game_over"]
+    assert final_render["winner"] == 1  # minimax's seat
+    discs = sum(v != 0 for row in final_render["board"] for v in row)
+    assert discs == final_render["moves_played"] >= 7
+
+
+def test_watch_two_player_mirror_default_and_single_agent_refusal(client):
+    resp = client.post(
+        "/api/watch",
+        json={"game": "connect_four", "agent": "random", "seed": 0},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["opponent"] == "random (mirror)"
+    # An opponent seat is meaningless for single-agent games.
+    bad = client.post(
+        "/api/watch",
+        json={
+            "game": "blackjack",
+            "agent": "basic_strategy",
+            "opponent": "random",
+        },
+    )
+    assert bad.status_code == 400

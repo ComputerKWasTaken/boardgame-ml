@@ -5,6 +5,8 @@ import numpy as np
 
 from boardgame_ml.agents.baselines import (
     BasicStrategyAgent,
+    ConnectFourGreedyAgent,
+    ConnectFourMinimaxAgent,
     FlappyHeuristicAgent,
     GreedyMatch3Agent,
     ProbabilityAgent,
@@ -12,6 +14,7 @@ from boardgame_ml.agents.baselines import (
     RandomAgent,
 )
 from boardgame_ml.envs.blackjack import BlackjackEnv, HIT, STAND
+from boardgame_ml.envs.connect_four import ConnectFourEnv
 from boardgame_ml.envs.flappy import FLAP, GLIDE, FlappyBirdEnv, Pipe
 from boardgame_ml.envs.higher_or_lower import HigherOrLowerEnv, HIGHER, LOWER
 from boardgame_ml.envs.match3 import (
@@ -256,3 +259,57 @@ def test_racing_heuristic_circulates_and_random_does_not():
     random_progress, _ = mean_progress(RandomAgent(seed=1))
     assert heuristic_laps >= 2.0
     assert heuristic_progress > random_progress + 500.0
+
+
+# ---------------------------------------------------------------------------
+# Connect Four baselines
+# ---------------------------------------------------------------------------
+
+
+def _c4_env_with(moves):
+    env = ConnectFourEnv()
+    obs, _ = env.reset(seed=0)
+    for col in moves:
+        obs, _, _, _, _ = env.step(col)
+    return env, obs
+
+
+def test_connect_four_greedy_takes_the_immediate_win():
+    # Player to move (P0) has three stacked in column 0; P1 parked in 6.
+    env, obs = _c4_env_with([0, 6, 0, 6, 0, 6])
+    assert ConnectFourGreedyAgent().select_action(env, obs) == 0
+
+
+def test_connect_four_greedy_blocks_as_second_player():
+    # Moves: P0 parks 6/5, P1 stacks column 1 three times; P0 to move
+    # must block column 1.
+    env, obs = _c4_env_with([6, 1, 5, 1, 6, 1])
+    assert env.current_player == 0
+    assert ConnectFourGreedyAgent().select_action(env, obs) == 1
+
+
+def test_connect_four_minimax_takes_the_immediate_win():
+    env, obs = _c4_env_with([0, 6, 0, 6, 0, 6])
+    assert ConnectFourMinimaxAgent().select_action(env, obs) == 0
+
+
+def test_connect_four_minimax_opens_in_the_centre():
+    env, obs = _c4_env_with([])
+    assert ConnectFourMinimaxAgent().select_action(env, obs) == 3
+
+
+def test_connect_four_noisy_greedy_extremes():
+    """The league's noisy twin: epsilon 0 = exactly the yardstick;
+    epsilon 1 = always a legal random column (never the full one)."""
+    from boardgame_ml.agents.baselines import ConnectFourGreedyNoisyAgent
+
+    env, obs = _c4_env_with([0, 6, 0, 6, 0, 6])
+    quiet = ConnectFourGreedyNoisyAgent(seed=1)
+    quiet.epsilon = 0.0
+    assert quiet.select_action(env, obs) == 0  # takes the win, like greedy
+
+    loud = ConnectFourGreedyNoisyAgent(seed=1)
+    loud.epsilon = 1.0
+    env2, obs2 = _c4_env_with([3, 3, 3, 3, 3, 3])  # column 3 is full
+    for _ in range(25):
+        assert loud.select_action(env2, obs2) != 3

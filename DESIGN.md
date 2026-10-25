@@ -64,9 +64,9 @@ A game is a `BaseGameEnv` (a `gymnasium.Env`):
 
 **Scope: `BaseGameEnv` is deliberately single-agent** — one
 decision-maker acting against the environment. Multiplayer games
-(per-player hands, hidden information, turn order) do not fit this
-base class and, when that milestone arrives, will live behind a
-separate PettingZoo-style AEC contract, with adapters to this
+live behind a separate contract, `TwoPlayerEnv`
+(`envs/two_player.py`, shipped in M6) — see "Multiplayer" below —
+with an adapter (the self-play wrapper) presenting them to this
 framework where practical.
 
 ### Agents
@@ -482,14 +482,152 @@ reference for racing is measured over 100 episodes instead of
 1,000 — racing episodes run up to 1,800 steps of simulation
 (vs ~10–400 elsewhere), and the count ships in the payload.
 
-## Roadmap beyond M1
+## Multiplayer (M6) — a second contract, an adapter, a league
+
+**The contract.** `BaseGameEnv` stays single-agent, untouched.
+Multiplayer lives behind `TwoPlayerEnv` (`envs/two_player.py`):
+alternating two-player, perfect-information, **zero-sum** games,
+where `step(action)` is always a move by the player to move.
+
+* **Perspective observations.** The observation is *always* written
+  from the seat of the player to move — "my pieces / your pieces",
+  never "player 0's / player 1's". One policy (or one baseline brain)
+  therefore plays either seat unchanged, which is what makes
+  self-play, tournaments and mirror matches free.
+* **Mover-perspective rewards.** `step()` returns the reward of the
+  player who *just moved*: `+1` for a winning move, `0` for a draw
+  or any non-terminal move. A `−1` can never be returned by a step —
+  the loser learns of the loss on the *next* step from the other
+  side, or from the terminal `info["winner"]`. Whoever aggregates
+  results over an episode (wrapper, tournament, cockpit) derives
+  the other seat by negation; the convention is stated once, here,
+  and the wrapper's sign handling is pinned by scripted tests from
+  both seats.
+* **`info` carries the seats:** `current_player` (to move next;
+  the mover at termination) and, at termination only, `winner`
+  (`0`, `1`, or `None` for a draw).
+* `action_masks()` is the mask of the player to move, as usual. In
+  a terminal state it returns all-True (SB3 validates masks at the
+  terminal transition; there is no next decision to mask).
+* Truncation is a game property, not a contract one: Connect Four
+  cannot truncate at all — a full board *is* the termination.
+
+**Why not PettingZoo AEC.** PettingZoo's AEC API (`last()` /
+`agent_iter()`, per-agent reward accumulation, terminations dicts)
+is the standard for this shape, and rolling our own is normally
+the legacy project's mistake. Three reasons it is right here: (1)
+the framework needs exactly one thing from a multiplayer env — a
+way to present it to SB3 as single-agent — and the adapter below
+is ~150 lines against PettingZoo's much larger surface; (2) no new
+dependency for a two-player alternating subset that AEC's
+generality (N agents, simultaneous moves, partial observability)
+overshoots; (3) the perspective-observation convention — the part
+that actually makes self-play work — is ours to state either way.
+If a future game needs >2 players or hidden information, that is
+the point to adopt AEC properly.
+
+**Connect Four** (`envs/connect_four.py`): 6×7, gravity,
+`Discrete(7)`, mask = non-full columns, observation `Box(6, 7, 2)`
+(two binary planes, mover-first) with the framework's default
+`MlpPolicy` — no Dict/MultiInput machinery needed. Win detection is
+incremental from the placed disc (only lines through it can be
+new), cross-checked against a brute-force scan by a fuzz test. A
+full board without a win terminates as a draw.
+
+**The adapter: self-play as single-agent RL.** `SelfPlayWrapper`
+(`training/self_play.py`) wraps a `TwoPlayerEnv` as a plain
+Gymnasium env: each episode the learner takes a uniformly random
+seat; when the turn passes to the opponent, the wrapper executes
+the opponent's move *inside* `step()` and returns the learner's
+own terminal result, sign-corrected (`+1/0/−1`). From SB3's side
+it is an ordinary masked env — MaskablePPO trains unchanged, and
+`check_env` passes on the wrapper. The same wrapper with a *fixed*
+opponent is the evaluation env: periodic eval plays the
+config's named heuristic anchor from both seats, so
+`best_model` selection means "best against a fixed, honest
+yardstick", never "best against yesterday's self". (One honest
+caveat the runs exposed: a *deterministic* eval yardstick
+saturates — run 2's eval pinned at exactly +1.0 once the policy
+had memorized it, and run 1's pinned at −1.0 while it lost every
+game, in both cases making `best_model` an arbitrary early
+checkpoint. The noisy anchor of the later recipes evals without
+saturating; the tournament, not the eval curve, is the verdict.)
+
+**The league (anti-cycle doctrine).** Pure latest-vs-latest
+self-play *strategy-cycles*: the learner overfits to its current
+opponent's quirks, forgets how to beat last month's style, and
+can orbit a rock-paper-scissors loop forever while its
+self-play score looks flat. The opponent pool is therefore a
+*mixture*: a bulk share drawn from **frozen snapshots of the
+learner itself**, saved every 10k steps by a callback, weighted
+toward recent snapshots but with a uniform floor so old styles
+never fully leave the mix; plus small constant shares of the
+random agent and a noisy greedy heuristic, which anchor the
+bottom of the skill ladder (and keep early training, before the
+first snapshot exists, playable); plus, optionally, a **search
+anchor** — a minimax baseline holding a share as the league's
+refuter. The pool is capped (24); eviction
+drops the oldest snapshot except the very first, which is a
+permanent anchor — and the acceptance tournament plays the learner
+against that first snapshot to prove the league actually taught
+it something. Snapshots predict through the same masked
+`predict_action` path as evaluation.
+
+**Tournament doctrine.** A competitive game has no scalar score:
+a single-agent "mean return" against one fixed opponent conflates
+seat advantage with strength and hides *who* the policy loses to.
+Evaluation is therefore a tournament (`eval/tournament.py`): the
+learner plays every yardstick **as both first and second player**
+(≥200 games per seat), reported as W/D/L per seat plus overall
+win/draw/loss rates and the first-player-advantage split across
+all decisive games. The yardsticks calibrate each other the same
+way (minimax depth-4 beats the greedy heuristic from both seats;
+greedy beats random from both seats), so the learner's numbers sit
+on a measured ladder, not vibes.
+
+**What the tournaments taught (four runs; full tables in the
+README).** The league doctrine above survived contact with the
+enemy, but three refinements were earned the hard way:
+
+1. **A deterministic yardstick at a large share is a textbook,
+   not an opponent.** Run 2 fed the learner 30% clean greedy and
+   got a 400-0 sweep of that greedy — by memorizing fork lines
+   against its deterministic replies — and a 0-400 loss to
+   minimax, which sees the forks coming. The fix was not less
+   heuristic but a *noisy* one: the greedy's ε-random twin
+   (`connect_four_greedy_noisy`) keeps its tactics and removes
+   the memorizable lines.
+2. **A league needs a refuter.** Run 3 added minimax itself as a
+   10% "search anchor" — an opponent whose whole job is to punish
+   the shallow tactic the rest of the pool cannot see through.
+   Specialization collapsed immediately: the policy went from
+   0% to an even 50% against depth-4 search.
+3. **Seats are different skills; measure them separately.**
+   Run 3's combined 50% hid a *perfect* split — 200-0 as first
+   player, 0-200 as second, against both yardsticks. The
+   combined rate alone would have called it "even"; the
+   per-seat table showed an attack-complete, defense-deficient
+   policy (and explained its stubborn ~9% loss rate even to
+   random: second-seat games let slip). The obvious response —
+   oversample the defensive seat in training
+   (`second_seat_share`) — was run 4, and it *refuted itself*:
+   killed by a VM restart at 731k steps, its last snapshot had
+   already re-specialized (greedy 400-0, minimax 0-400), because
+   the reply seat is also where 1-ply opponents are most
+   fork-exploitable. The shipped recipe is run 3's; the seat
+   bias remains in the schema, defaulting to an unbiased 0.5,
+   as a recorded negative result. What would actually move the
+   second seat — deeper search anchors at a larger share, a
+   value-pretrained defense, or an order of magnitude more
+   steps — is future work, stated as such.
+
 
 * More games behind the same contract (the real test of modularity)
   — Match 3 landed in M3 (see above); Flappy Bird landed in M4 as
   the first continuous-dynamics game (see "Continuous games");
   racing landed in M5 as the first continuous-*action* game (see
-  "Racing"); a multi-player game via a PettingZoo-style wrapper is
-  the remaining frontier.
+  "Racing"); multiplayer landed in M6 (Connect Four + a self-play
+  league, see "Multiplayer").
 * ~~Graphical watch viewer~~ — **done**: the web cockpit
   (`src/boardgame_ml/web/` + `web/`) serves a local React UI from
   the same process as its FastAPI backend. It consumes the framework

@@ -59,6 +59,7 @@ PRESETS: dict[str, dict[str, dict[str, int]]] = {
             "higher_or_lower": 10_000,
             "match3": 100_000,
             "flappy": 100_000,
+            "connect_four": 300_000,
             "racing": 250_000,
             "racing:sac": 50_000,
         },
@@ -67,7 +68,7 @@ PRESETS: dict[str, dict[str, dict[str, int]]] = {
             "match3": 25_000,
             "racing": 10_000,
         },
-        "eval_episodes": {"default": 200, "racing": 10},
+            "eval_episodes": {"default": 200, "racing": 10, "connect_four": 40},
     },
     "standard": {
         "timesteps": {
@@ -76,6 +77,7 @@ PRESETS: dict[str, dict[str, dict[str, int]]] = {
             "higher_or_lower": 60_000,
             "match3": 700_000,
             "flappy": 300_000,
+            "connect_four": 2_000_000,
             "racing": 600_000,
             "racing:sac": 150_000,
         },
@@ -85,6 +87,7 @@ PRESETS: dict[str, dict[str, dict[str, int]]] = {
             "higher_or_lower": 10_000,
             "match3": 25_000,
             "flappy": 25_000,
+            "connect_four": 25_000,
             "racing": 25_000,
             "racing:sac": 10_000,
         },
@@ -92,6 +95,7 @@ PRESETS: dict[str, dict[str, dict[str, int]]] = {
             "default": 500,
             "match3": 200,
             "flappy": 200,
+            "connect_four": 100,
             "racing": 10,
         },
     },
@@ -102,6 +106,7 @@ PRESETS: dict[str, dict[str, dict[str, int]]] = {
             "higher_or_lower": 100_000,
             "match3": 1_000_000,
             "flappy": 600_000,
+            "connect_four": 4_000_000,
             "racing": 1_500_000,
             "racing:sac": 300_000,
         },
@@ -111,6 +116,7 @@ PRESETS: dict[str, dict[str, dict[str, int]]] = {
             "higher_or_lower": 10_000,
             "match3": 25_000,
             "flappy": 25_000,
+            "connect_four": 25_000,
             "racing": 25_000,
             "racing:sac": 10_000,
         },
@@ -118,6 +124,7 @@ PRESETS: dict[str, dict[str, dict[str, int]]] = {
             "default": 500,
             "match3": 200,
             "flappy": 200,
+            "connect_four": 100,
             "racing": 10,
         },
     },
@@ -222,6 +229,37 @@ PAIR_DEFAULTS: dict[tuple[str, str], dict[str, Any]] = {
             "gae_lambda": 0.95,
         },
     },
+    ("connect_four", "maskable_ppo"): {
+        "gamma": 0.99,
+        "policy": "MlpPolicy",
+        "policy_kwargs": {"net_arch": [256, 256]},
+        "n_envs": 8,
+        "learning_rate": 3e-4,
+        "hyperparams": {
+            "n_steps": 256,
+            "batch_size": 512,
+            "n_epochs": 4,
+            "ent_coef": 0.02,
+            "gae_lambda": 0.95,
+        },
+        # The league recipe (training/self_play.py), run-3 values
+        # (see the YAML's header for the run-1/run-2 post-mortems).
+        # Parity-tested like every other load-bearing field: a
+        # cockpit self-play run with a different mixture or snapshot
+        # cadence would be a different experiment than the shipped one.
+        "self_play": {
+            "snapshot_interval": 10000,
+            "snapshot_share": 0.55,
+            "random_share": 0.15,
+            "heuristic_share": 0.2,
+            "heuristic": "connect_four_greedy_noisy",
+            "search_share": 0.1,
+            "search": "connect_four_minimax",
+            "pool_max": 24,
+            "recency_exponent": 1.0,
+            "uniform_floor": 0.25,
+        },
+    },
     ("racing", "ppo"): {
         # gamma 0.995 is the braking horizon (DESIGN.md, M5): at
         # 0.99 the car never learns to brake. Do not "simplify" this
@@ -296,6 +334,7 @@ def pair_defaults_payload() -> dict[str, dict[str, Any]]:
             "n_envs": defaults.get("n_envs", 4),
             "learning_rate": defaults.get("learning_rate", 3e-4),
             "hyperparams": deepcopy(defaults.get("hyperparams", {})),
+            "self_play": deepcopy(defaults.get("self_play", {})),
         }
     return payload
 
@@ -361,6 +400,7 @@ def build_config(
         ),
         output_dir=output_dir,
         hyperparams=deepcopy(pair.get("hyperparams", {})),
+        self_play=deepcopy(pair.get("self_play", {})),
     )
 
 

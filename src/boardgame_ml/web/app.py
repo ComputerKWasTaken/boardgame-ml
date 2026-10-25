@@ -95,14 +95,28 @@ GAME_INFO: dict[str, dict[str, str]] = {
         "track ends the episode. Lateral grip caps cornering speed, "
         "so braking for corners is a real, learnable skill.",
     },
+    "connect_four": {
+        "display_name": "Connect Four",
+        "observation": (
+            "Two binary planes (6, 7, 2): the discs of the player "
+            "to move, and the opponent's"
+        ),
+        "blurb": "The first multiplayer game (M6): two players "
+        "alternate dropping discs; four in a row wins, a full board "
+        "draws. Rewards are the mover's: +1 win, 0 draw. The "
+        "baseline rows below are *self-matches* (the named agent "
+        "plays both seats), so their mean return is the share of "
+        "games that end decisively — head-to-head strength lives in "
+        "the tournament table (README), not on this card.",
+    },
 }
 
 #: Baseline reference evaluations on the Games card. Every game is
-#: measured over 1,000 episodes except racing: its episodes run up
-#: to 1,800 steps of continuous simulation (vs ~10–400 for the
-#: others), so the card uses a smaller — still three-figure —
-#: sample to stay responsive. The count ships in the payload.
-_BASELINE_EPISODES: dict[str, int] = {"racing": 100}
+#: measured over 1,000 episodes except racing (continuous episodes
+#: are long) and connect_four (each "episode" is a full two-player
+#: self-match, and minimax moves are alpha-beta searches — 10
+#: matches keep the card responsive; the count ships in the payload).
+_BASELINE_EPISODES: dict[str, int] = {"racing": 100, "connect_four": 10}
 
 _BASE_STEP_SECONDS = 0.9  # watch-mode step interval at speed 1
 
@@ -130,6 +144,9 @@ class WatchRequest(BaseModel):
     run_id: str | None = None
     checkpoint: str = "best_model"
     seed: int = 0
+    # Two-player games only: a baseline name for seat 1. Omitted =
+    # mirror match (seat 0's agent plays both sides).
+    opponent: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -385,6 +402,7 @@ def create_app(runs_dir: str | Path = "runs") -> FastAPI:
                 run_id=req.run_id,
                 checkpoint=req.checkpoint,
                 seed=req.seed,
+                opponent=req.opponent,
             )
         except ValueError as exc:
             raise HTTPException(400, str(exc))
@@ -392,6 +410,7 @@ def create_app(runs_dir: str | Path = "runs") -> FastAPI:
             "session_id": session.session_id,
             "game": session.game,
             "agent": session.agent_label,
+            "opponent": session.opponent_label,
             "initial": session.state_event(),
         }
 

@@ -112,7 +112,49 @@ list of moves, it *drives* — a `Box(2)` of steering and throttle:
   fan, car with steering tick) and racing train presets. See
   [DESIGN.md](DESIGN.md#racing-m5--continuous-actions).
 
-## Quickstart
+## Milestone 6 — Connect Four (first multiplayer game)
+
+The framework's second contract arrives, and with it a different
+kind of learning problem: there is no environment to beat, only an
+opponent who is also learning.
+
+* **Two-player contract** (`envs/two_player.py`) — alternating,
+  zero-sum, perfect information. The observation is **always from
+  the perspective of the player to move** ("my discs / your
+  discs"); rewards are the **mover's** (+1 for a winning move, 0
+  for a draw, never −1 — the other seat's result is derived by
+  negation). Rolled by hand instead of adopting PettingZoo AEC:
+  the framework needs one adapter, not N-agent generality, and no
+  new dependency. Rationale in
+  [DESIGN.md](DESIGN.md#multiplayer-m6--a-second-contract-an-adapter-a-league).
+* **Connect Four** — 6×7, gravity, `Discrete(7)`, mask = non-full
+  columns, two binary observation planes with the stock
+  `MlpPolicy`; incremental win detection cross-checked against a
+  brute-force scan by fuzz tests. A full board is the termination
+  (draw) — no truncation exists in this game.
+* **Self-play league** (`training/self_play.py`) — a wrapper
+  presents the game to MaskablePPO as single-agent RL: the learner
+  takes a seat each episode (biasable toward the harder second
+  seat), opponents move inside `step()`, rewards arrive
+  sign-corrected. Opponents are a **league**, not the latest
+  checkpoint: frozen snapshots of the learner (saved every 10k
+  steps, weighted toward recent, uniform floor so old styles
+  never vanish, first snapshot a permanent anchor), small shares
+  of random and a noisy greedy heuristic, and a minimax **search
+  anchor** — the anti-cycle doctrine, documented in DESIGN.md.
+* **Yardsticks + tournament** — a tactical greedy (win → block →
+  don't blunder → positional) and an alpha-beta **minimax
+  (depth 4)**. Competitive games get no scalar score: evaluation
+  is a tournament (`eval/tournament.py`), every pairing played as
+  **both seats**, W/D/L per seat plus the first-player-advantage
+  split. Results below.
+* The cockpit seats two agents in Watch (a checkpoint vs a
+  baseline, or a mirror match), renders the rack with red/yellow
+  discs and a last-move highlight, and trains Connect Four from
+  the Train view with the league config carried by PAIR_DEFAULTS
+  parity.
+
+
 
 ```bash
 python3 -m venv .venv
@@ -381,6 +423,88 @@ checkpoint rule had to catch; SAC's number is a steady state the
 run simply ends in. Sample-for-sample SAC also got there in
 about half the environment steps (plateau at 40k vs PPO's peak
 at 75k) — the cost is wall clock, not experience. See DESIGN.md.
+
+## M6 results — Connect Four (tournament, 200 games per seat)
+
+A competitive game gets no scalar score: the learner plays every
+opponent **as both first and second player**, 200 games per seat,
+deterministic policies throughout. The yardsticks calibrate the
+ladder first — minimax (depth 4) beats the greedy heuristic
+400-0 and random 400-0; greedy beats random 400-0. Zero draws
+occurred in any pairing below (Connect Four between win-seeking
+players is decisive; a full-board draw is a test fixture, not an
+outcome these policies produce).
+
+**The shipped run (run 3 recipe) — best_model, 2M steps:**
+
+| Opponent | As first (W-D-L) | As second (W-D-L) | Combined | Win rate |
+|---|---|---|---|---|
+| Random | 183-0-17 | 182-0-18 | 365-0-35 | 91.2% |
+| Greedy heuristic | **200-0-0** | **0-0-200** | 200-0-200 | 50.0% |
+| Minimax (depth 4) | **200-0-0** | **0-0-200** | 200-0-200 | 50.0% |
+| Its own first snapshot | 200-0-0 | 200-0-0 | 400-0-0 | 100% |
+
+Read the seat columns, not just the totals: against both real
+yardsticks the **opening seat won literally every game** — the
+policy is a perfect opener and a winless defender at this level
+of opposition (its final_model twin measured the same shape:
+91.7% / 50% / 50% / 100%). First-player advantage across all
+1,600 games: 75.1% of decisive games went to the seat that moved
+first.
+
+**Acceptance, honestly:** beats its first snapshot 100% (bar
+70%) ✓; not swept by minimax — 50% wins+draws (bar 25%) ✓;
+beats random 91.2% (bar 95%) ✗; beats greedy 50% combined (bar
+65%) ✗. Two of four bars cleared. The two misses are the same
+miss — second-seat defense — seen from two rungs of the ladder.
+
+**How it got there — four runs, four instructive failures:**
+
+| Run | League recipe | vs Random | vs Greedy | vs Minimax d4 | vs first snapshot |
+|---|---|---|---|---|---|
+| 1 (1.5M steps) | snapshots 0.8, clean greedy 0.1, random 0.1; default net, ent 0.01 | 89.7% W | **0% W** | **0% W+D** | 100% W |
+| 2 (2M steps) | clean greedy 0.3, 10k snapshots, [256,256], ent 0.02 | 92.0% W | **100% W** | **0% W+D** | 100% W |
+| 3 (2M steps) | noisy greedy 0.2, minimax anchor 0.1, snapshots 0.55 | 91.2% W | 50% W (200-0 / 0-200 by seat) | 50% W+D (200-0 / 0-200) | 100% W |
+| 4 (killed at 731k) | run 3 + second-seat bias 0.65, 2.5M budget | 94.0% W (@730k snapshot) | 100% W | 0% W+D | — |
+
+* **Run 1 — tactics never arrived.** A league of near-copies of
+  itself (80% snapshots) taught it to beat its own style; the 10%
+  greedy slice was too thin to teach blocking. It lost all 400
+  games to a heuristic that simply takes wins and blocks them.
+* **Run 2 — memorization, not learning.** Tripling the *clean*
+  greedy share produced a perfect 400-0 sweep of that greedy —
+  by memorizing fork lines against its deterministic replies —
+  while minimax, which sees the forks coming, swept it 0-400 in
+  return. A deterministic yardstick at a large share is a
+  textbook to memorize, not an opponent. (The run's process was
+  killed by a VM restart at 1.85M/2M steps; its checkpoints were
+  tournamented from disk regardless — snapshots make a run
+  resumable-by-measurement even when it isn't resumable.)
+* **Run 3 — a perfect seat split.** Replacing the clean greedy
+  with its ε=0.2 noisy twin and adding minimax itself as a 10%
+  league anchor (the *refuter*) produced a generalist: exactly
+  50% against both yardsticks, split 200-0 as first player and
+  0-200 as second. Connect Four is a first-player win under
+  perfect play; the policy had become attack-complete and
+  defense-deficient — and the ~9% it still dropped to *random*
+  is the same hole (second-seat games let slip).
+* **Run 4 — the obvious fix, refuted.** Aiming the budget at
+  the weak seat (`second_seat_share` 0.65: the learner defends
+  in ~2 of 3 episodes) brought the specialist back: its last
+  snapshot (the run was killed by a VM restart at 731k of 2.5M
+  steps) swept greedy 400-0 and was swept by minimax 0-400.
+  Oversampling the reply seat oversamples exactly the context
+  where 1-ply opponents are most exploitable by forks, so the
+  specialist basin deepened faster than the minimax anchor
+  could refute it. The shipped recipe is therefore run 3's; the
+  seat-bias field remains in the schema (default an unbiased
+  0.5), recorded as an unproven knob with a negative first
+  result.
+
+Training throughput is the self-play tax made concrete: ~815
+steps/s for run 1's recipe, ~570 steps/s for run 3's (bigger
+net, minimax anchor moves priced in Python). The bare env steps
+orders of magnitude faster; the league *is* the compute.
 
 ## Post-M1 hardening
 

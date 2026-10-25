@@ -50,6 +50,7 @@ PARITY_FIELDS = (
     "n_envs",
     "learning_rate",
     "hyperparams",
+    "self_play",
 )
 
 
@@ -111,6 +112,27 @@ def test_match3_cockpit_config_is_the_shipped_one():
     assert cfg.hyperparams["batch_size"] == 512
 
 
+def test_connect_four_cockpit_config_carries_the_league():
+    """The M6 trap, named: Connect Four from the cockpit must carry
+    the self-play league (mixture, snapshot cadence, pool cap) —
+    without the ``self_play`` block the trainer would build a
+    single-agent run against an empty seat and learn nothing."""
+    cfg = build_config(game="connect_four", algorithm="maskable_ppo")
+    assert cfg.self_play["snapshot_interval"] == 10_000
+    assert cfg.self_play["snapshot_share"] == 0.55
+    assert cfg.self_play["heuristic_share"] == 0.2
+    assert cfg.self_play["heuristic"] == "connect_four_greedy_noisy"
+    assert cfg.self_play["search"] == "connect_four_minimax"
+    assert cfg.self_play["search_share"] == 0.1
+    assert cfg.self_play["pool_max"] == 24
+    assert cfg.policy_kwargs["net_arch"] == [256, 256]
+    assert cfg.n_envs == 8
+    shipped = ExperimentConfig.from_yaml(
+        CONFIGS_DIR / "connect_four_maskable_ppo.yaml"
+    )
+    assert cfg.self_play == shipped.self_play
+
+
 def test_racing_sac_cockpit_config_is_the_shipped_one():
     """The M5 trap, named: cockpit SAC must not fall back to gamma
     0.99 (the car never brakes), 4 envs, or SB3's 1M... buffer
@@ -146,6 +168,7 @@ def test_presets_cover_every_game_and_the_sac_pair():
             assert game in tables["timesteps"], (preset, game)
     standard = PRESETS["standard"]["timesteps"]
     assert standard["match3"] == 700_000  # the shipped budget
+    assert standard["connect_four"] == 2_000_000  # the shipped M6 budget
     assert standard["racing"] == 600_000  # the shipped PPO budget
     assert standard["racing:sac"] == 150_000  # the shipped SAC run
     assert PRESETS["quick"]["timesteps"]["racing:sac"] == 50_000
@@ -215,6 +238,7 @@ def test_meta_endpoint_exposes_effective_settings(tmp_path):
         "match3",
         "flappy",
         "racing",
+        "connect_four",
     }
     assert meta["default_algorithms"]["racing"] == "sac"
     sac = meta["pair_defaults"]["racing:sac"]

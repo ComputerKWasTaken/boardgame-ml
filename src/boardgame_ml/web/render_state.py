@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import Any
 
 from boardgame_ml.envs import blackjack as bj
+from boardgame_ml.envs import connect_four as c4
 from boardgame_ml.envs import flappy as fb
 from boardgame_ml.envs import higher_or_lower as hol
 
@@ -130,12 +131,31 @@ def _racing(env, info: dict, reveal: bool) -> dict:
     }
 
 
+def _connect_four(env, info: dict, reveal: bool) -> dict:
+    # Absolute seats (the viewer's board, not a player's obs):
+    # 0 empty, 1 = player 0 (red), 2 = player 1 (yellow), top row
+    # first, exactly as the env stores it.
+    return {
+        "board": [[int(v) for v in row] for row in env.board],
+        "rows": c4.ROWS,
+        "cols": c4.COLS,
+        "current_player": info.get("current_player", env.current_player),
+        "winner": info.get("winner", env.winner),
+        "last_move": env.last_move,
+        "moves_played": env.moves_played,
+        "game_over": bool(
+            env.winner is not None or env.moves_played >= c4.ROWS * c4.COLS
+        ),
+    }
+
+
 _BUILDERS = {
     "blackjack": _blackjack,
     "higher_or_lower": _higher_or_lower,
     "match3": _match3,
     "flappy": _flappy,
     "racing": _racing,
+    "connect_four": _connect_four,
 }
 
 

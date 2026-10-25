@@ -2,6 +2,7 @@
 
 import type {
   BlackjackRender,
+  ConnectFourRender,
   FlappyRender,
   HolRender,
   Match3Render,
@@ -295,6 +296,57 @@ export function RacingBoard({ render }: { render: RacingRender }) {
   );
 }
 
+export function ConnectFourBoard({ render }: { render: ConnectFourRender }) {
+  // The last-placed disc is the topmost filled cell of the last-move
+  // column; it gets the highlight ring.
+  let lastCell: string | null = null;
+  if (render.last_move !== null) {
+    for (let r = 0; r < render.rows; r++) {
+      if (render.board[r][render.last_move] !== 0) {
+        lastCell = `${r},${render.last_move}`;
+        break;
+      }
+    }
+  }
+  const status = render.game_over
+    ? render.winner !== null
+      ? render.winner === 0
+        ? "Red (player 1) wins"
+        : "Yellow (player 2) wins"
+      : "Draw"
+    : render.current_player === 0
+      ? "Red to move"
+      : "Yellow to move";
+  return (
+    <div className="board connect-four-board">
+      <div className="match3-header">
+        <div>
+          Move <strong>{render.moves_played}</strong> / {render.rows * render.cols}
+        </div>
+        <div className={render.game_over ? "badge" : undefined}>{status}</div>
+      </div>
+      <div
+        className="connect-four-grid"
+        style={{ gridTemplateColumns: `repeat(${render.cols}, 1fr)` }}
+      >
+        {render.board.map((row, r) =>
+          row.map((v, c) => (
+            <div key={`${r}-${c}`} className="connect-four-cell">
+              <div
+                className={
+                  "connect-four-disc" +
+                  (v === 1 ? " p0" : v === 2 ? " p1" : "") +
+                  (lastCell === `${r},${c}` ? " last" : "")
+                }
+              />
+            </div>
+          )),
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Board({ render }: { render: RenderState }) {
   if (render.game === "blackjack") {
     return <BlackjackBoard render={render as BlackjackRender} />;
@@ -310,6 +362,9 @@ export default function Board({ render }: { render: RenderState }) {
   }
   if (render.game === "racing") {
     return <RacingBoard render={render as RacingRender} />;
+  }
+  if (render.game === "connect_four") {
+    return <ConnectFourBoard render={render as ConnectFourRender} />;
   }
   return (
     <div className="board">

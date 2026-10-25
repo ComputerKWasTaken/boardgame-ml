@@ -15,10 +15,12 @@ import gymnasium as gym
 
 from boardgame_ml.envs.base import BaseGameEnv
 from boardgame_ml.envs import blackjack as bj
+from boardgame_ml.envs import connect_four as c4
 from boardgame_ml.envs import flappy as fb
 from boardgame_ml.envs import higher_or_lower as hol
 from boardgame_ml.envs import match3 as m3
 from boardgame_ml.envs import racing as rc
+from boardgame_ml.envs.two_player import board_from_obs
 
 
 class BaselineAgent:
@@ -37,7 +39,14 @@ class RandomAgent(BaselineAgent):
     uniform sample of the action box (continuous games)."""
 
     name = "random"
-    games = ("blackjack", "higher_or_lower", "match3", "flappy", "racing")
+    games = (
+        "blackjack",
+        "higher_or_lower",
+        "match3",
+        "flappy",
+        "racing",
+        "connect_four",
+    )
 
     def __init__(self, seed: int | None = None) -> None:
         self._rng = np.random.default_rng(seed)
@@ -274,6 +283,323 @@ class RacingHeuristicAgent(BaselineAgent):
         return np.array([steer, throttle], dtype=np.float32)
 
 
+# ---------------------------------------------------------------------------
+# Connect Four machinery (shared by the greedy and minimax baselines)
+#
+# Both agents compute on a *flat signed board*: a list of 42 ints in
+# row-major order (row 0 = top), +1 for the discs of the player to
+# move, -1 for the opponent's -- decoded from the perspective
+# observation by board_from_obs (envs/two_player.py), the one place
+# that decoding lives. Search flips the board's sign each ply so the
+# side to move is always +1 (negamax convention).
+# ---------------------------------------------------------------------------
+
+_C4_CENTER_ORDER = (3, 2, 4, 1, 5, 0, 6)  # strongest columns first
+
+
+def _c4_windows() -> list[tuple[int, int, int, int]]:
+    """All 69 four-cell lines of the 6x7 board, as flat index tuples."""
+    windows = []
+    rows, cols = c4.ROWS, c4.COLS
+    for r in range(rows):
+        for c in range(cols):
+            for dr, dc in ((0, 1), (1, 0), (1, 1), (1, -1)):
+                cells = tuple(
+                    (r + i * dr) * cols + (c + i * dc)
+                    for i in range(c4.CONNECT)
+                )
+                if all(
+                    0 <= r + i * dr < rows and 0 <= c + i * dc < cols
+                    for i in range(c4.CONNECT)
+                ):
+                    windows.append(cells)
+    return windows
+
+
+_C4_WINDOWS = _c4_windows()
+
+
+def _c4_heights(flat: list[int]) -> list[int]:
+    cols, rows = c4.COLS, c4.ROWS
+    return [
+        sum(1 for r in range(rows) if flat[r * cols + col] != 0)
+        for col in range(cols)
+    ]
+
+
+def _c4_drop_row(heights: list[int], col: int) -> int:
+    """Row a disc lands on in ``col`` (top-first indexing), or -1."""
+    if heights[col] >= c4.ROWS:
+        return -1
+    return c4.ROWS - 1 - heights[col]
+
+
+def _c4_creates_win(flat: list[int], row: int, col: int) -> bool:
+    """Flat-board twin of connect_four.creates_win (same semantics)."""
+    value = flat[row * c4.COLS + col]
+    if value == 0:
+        return False
+    for dr, dc in ((0, 1), (1, 0), (1, 1), (1, -1)):
+        count = 1
+        for sign in (1, -1):
+            r, cc = row + sign * dr, col + sign * dc
+            while (
+                0 <= r < c4.ROWS
+                and 0 <= cc < c4.COLS
+                and flat[r * c4.COLS + cc] == value
+            ):
+                count += 1
+                r += sign * dr
+                cc += sign * dc
+        if count >= c4.CONNECT:
+            return True
+    return False
+
+
+def _c4_winning_columns(flat: list[int], heights: list[int]) -> list[int]:
+    """Columns where the side to move (+1) wins by dropping now."""
+    wins = []
+    for col in _C4_CENTER_ORDER:
+        row = _c4_drop_row(heights, col)
+        if row < 0:
+            continue
+        idx = row * c4.COLS + col
+        flat[idx] = 1
+        if _c4_creates_win(flat, row, col):
+            wins.append(col)
+        flat[idx] = 0
+    return wins
+
+
+def _c4_positional_score(flat: list[int]) -> float:
+    """Window-count evaluation from the +1 (side-to-move) perspective.
+
+    Every 4-cell window scores by its composition: an open three is
+    the game's real currency (one move from four), an open two is a
+    down payment; mixed windows are dead and score 0. The opponent's
+    open three is weighted slightly *above* one's own -- failing to
+    answer a threat loses on the spot, while making one only
+    threatens to. Centre-column discs get a small bonus (the centre
+    participates in the most windows).
+    """
+    score = 0.0
+    for w in _C4_WINDOWS:
+        mine = theirs = 0
+        for idx in w:
+            v = flat[idx]
+            if v == 1:
+                mine += 1
+            elif v == -1:
+                theirs += 1
+        if mine and theirs:
+            continue
+        if mine == 3:
+            score += 40.0
+        elif mine == 2:
+            score += 8.0
+        elif mine == 1:
+            score += 1.0
+        elif theirs == 3:
+            score -= 45.0
+        elif theirs == 2:
+            score -= 9.0
+        elif theirs == 1:
+            score -= 1.0
+    centre = c4.COLS // 2
+    for r in range(c4.ROWS):
+        v = flat[r * c4.COLS + centre]
+        if v == 1:
+            score += 4.0
+        elif v == -1:
+            score -= 4.0
+    return score
+
+
+class ConnectFourGreedyAgent(BaselineAgent):
+    """1-ply tactical greedy for Connect Four -- the self-play anchor.
+
+    The rule, in full (columns considered centre-out: 3, 2, 4, 1, 5,
+    0, 6, which is also the tie-break everywhere):
+
+    1. **Win** if a drop completes four.
+    2. **Block** if the opponent has a drop that completes four
+       (flip the board's sign and ask the same question for them).
+    3. **Don't blunder**: discard drops after which the opponent has
+       an immediate winning drop (the classic trap: your disc gives
+       them the support cell their line was missing) -- unless every
+       legal drop blunders.
+    4. Otherwise play the drop with the best positional score
+       (:func:`_c4_positional_score` of the resulting board).
+
+    It sees only the observation (decoded by the shared
+    perspective convention); it never touches the env's internals.
+    """
+
+    name = "connect_four_greedy"
+    games = ("connect_four",)
+
+    def select_action(self, env: BaseGameEnv, obs: np.ndarray) -> int:
+        flat = [int(v) for v in board_from_obs(obs).reshape(-1)]
+        heights = _c4_heights(flat)
+
+        wins = _c4_winning_columns(flat, heights)
+        if wins:
+            return wins[0]
+        flipped = [-v for v in flat]
+        blocks = _c4_winning_columns(flipped, heights)
+        if blocks:
+            return blocks[0]
+
+        legal = [c for c in _C4_CENTER_ORDER if heights[c] < c4.ROWS]
+
+        def gives_opponent_a_win(col: int) -> bool:
+            row = _c4_drop_row(heights, col)
+            idx = row * c4.COLS + col
+            flat[idx] = 1
+            heights[col] += 1
+            reply = [-v for v in flat]
+            danger = bool(_c4_winning_columns(reply, heights))
+            flat[idx] = 0
+            heights[col] -= 1
+            return danger
+
+        safe = [c for c in legal if not gives_opponent_a_win(c)]
+        candidates = safe or legal
+
+        best_col, best_score = candidates[0], -float("inf")
+        for col in candidates:
+            row = _c4_drop_row(heights, col)
+            idx = row * c4.COLS + col
+            flat[idx] = 1
+            score = _c4_positional_score(flat)
+            flat[idx] = 0
+            if score > best_score:
+                best_col, best_score = col, score
+        return best_col
+
+
+class ConnectFourGreedyNoisyAgent(ConnectFourGreedyAgent):
+    """The greedy yardstick with shaky hands: with probability
+    ``epsilon`` it drops in a uniformly random legal column instead
+    of the greedy one.
+
+    This is a *league* opponent, not a tournament yardstick. It
+    exists because of what run 2 of the M6 training showed: a
+    learner fed a large share of a fully deterministic opponent
+    memorizes counter-lines to that opponent's exact replies
+    (100% vs the clean greedy) and learns little that transfers
+    (0% vs minimax). The noisy twin keeps the same tactics — wins,
+    blocks, blunders are still punished 80% of the time — but its
+    lines cannot be memorized, so the learner has to learn the
+    tactics themselves. Seeded optionally, like ``RandomAgent``.
+    """
+
+    name = "connect_four_greedy_noisy"
+    games = ("connect_four",)
+    epsilon = 0.2
+
+    def __init__(self, seed: int | None = None) -> None:
+        self._rng = np.random.default_rng(seed)
+
+    def select_action(self, env: BaseGameEnv, obs: np.ndarray) -> int:
+        if self._rng.random() < self.epsilon:
+            legal = np.flatnonzero(env.action_masks())
+            return int(self._rng.choice(legal))
+        return super().select_action(env, obs)
+
+
+class ConnectFourMinimaxAgent(BaselineAgent):
+    """Alpha-beta minimax for Connect Four -- the tournament's ceiling.
+
+    Negamax over the signed flat board, centre-first move ordering,
+    depth-limited (``depth`` plies, default 4) with
+    :func:`_c4_positional_score` at the leaves. A win found in search
+    scores ``WIN_SCORE - ply`` so faster wins (and slower losses)
+    are preferred. Deterministic: fixed move order, strict
+    improvement keeps the first best.
+
+    It plays from the observation only, like every baseline; the
+    search state is decoded from the obs, never read off the env.
+    """
+
+    name = "connect_four_minimax"
+    games = ("connect_four",)
+
+    WIN_SCORE = 10_000.0
+
+    def __init__(self, depth: int = 4) -> None:
+        if depth < 1:
+            raise ValueError("depth must be >= 1")
+        self.depth = depth
+
+    def select_action(self, env: BaseGameEnv, obs: np.ndarray) -> int:
+        flat = [int(v) for v in board_from_obs(obs).reshape(-1)]
+        heights = _c4_heights(flat)
+        best_col, best_score = -1, -float("inf")
+        alpha = -float("inf")
+        for col in _C4_CENTER_ORDER:
+            row = _c4_drop_row(heights, col)
+            if row < 0:
+                continue
+            idx = row * c4.COLS + col
+            flat[idx] = 1
+            heights[col] += 1
+            if _c4_creates_win(flat, row, col):
+                score = self.WIN_SCORE
+            elif all(h >= c4.ROWS for h in heights):
+                score = 0.0
+            else:
+                child = [-v for v in flat]
+                score = -self._negamax(
+                    child, heights, self.depth - 1, -float("inf"), -alpha, 1
+                )
+            flat[idx] = 0
+            heights[col] -= 1
+            if score > best_score:
+                best_col, best_score = col, score
+            alpha = max(alpha, best_score)
+        return best_col
+
+    def _negamax(
+        self,
+        flat: list[int],
+        heights: list[int],
+        depth: int,
+        alpha: float,
+        beta: float,
+        ply: int,
+    ) -> float:
+        """Score for the side to move (+1) in this node."""
+        if depth == 0:
+            return _c4_positional_score(flat)
+        best = -float("inf")
+        for col in _C4_CENTER_ORDER:
+            row = _c4_drop_row(heights, col)
+            if row < 0:
+                continue
+            idx = row * c4.COLS + col
+            flat[idx] = 1
+            heights[col] += 1
+            if _c4_creates_win(flat, row, col):
+                score = self.WIN_SCORE - ply
+            elif all(h >= c4.ROWS for h in heights):
+                score = 0.0
+            else:
+                child = [-v for v in flat]
+                score = -self._negamax(
+                    child, heights, depth - 1, -beta, -alpha, ply + 1
+                )
+            flat[idx] = 0
+            heights[col] -= 1
+            if score > best:
+                best = score
+            if best > alpha:
+                alpha = best
+            if alpha >= beta:
+                break
+        return best
+
+
 BASELINES: dict[str, type[BaselineAgent]] = {
     cls.name: cls
     for cls in (
@@ -283,6 +609,9 @@ BASELINES: dict[str, type[BaselineAgent]] = {
         GreedyMatch3Agent,
         FlappyHeuristicAgent,
         RacingHeuristicAgent,
+        ConnectFourGreedyAgent,
+        ConnectFourGreedyNoisyAgent,
+        ConnectFourMinimaxAgent,
     )
 }
 

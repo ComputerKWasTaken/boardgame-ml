@@ -6,10 +6,12 @@ from typing import Any
 
 from boardgame_ml.envs.base import BaseGameEnv
 from boardgame_ml.envs.blackjack import BlackjackEnv
+from boardgame_ml.envs.connect_four import ConnectFourEnv
 from boardgame_ml.envs.flappy import FlappyBirdEnv
 from boardgame_ml.envs.higher_or_lower import HigherOrLowerEnv
 from boardgame_ml.envs.match3 import Match3Env
 from boardgame_ml.envs.racing import RacingEnv
+from boardgame_ml.envs.two_player import TwoPlayerEnv
 
 GAMES: dict[str, type[BaseGameEnv]] = {
     "blackjack": BlackjackEnv,
@@ -17,7 +19,15 @@ GAMES: dict[str, type[BaseGameEnv]] = {
     "match3": Match3Env,
     "flappy": FlappyBirdEnv,
     "racing": RacingEnv,
+    "connect_four": ConnectFourEnv,
 }
+
+#: The subset of :data:`GAMES` played under the two-player contract
+#: (:class:`TwoPlayerEnv`). Training these goes through the self-play
+#: wrapper; evaluation goes through the tournament harness.
+TWO_PLAYER_GAMES: frozenset[str] = frozenset(
+    name for name, cls in GAMES.items() if issubclass(cls, TwoPlayerEnv)
+)
 
 
 def make_env(
@@ -31,11 +41,14 @@ def make_env(
 
 __all__ = [
     "BaseGameEnv",
+    "TwoPlayerEnv",
     "BlackjackEnv",
     "HigherOrLowerEnv",
     "Match3Env",
     "FlappyBirdEnv",
     "RacingEnv",
+    "ConnectFourEnv",
     "GAMES",
+    "TWO_PLAYER_GAMES",
     "make_env",
 ]

@@ -1,0 +1,83 @@
+# Connect Four (M6) — the first multiplayer game, trained by
+# self-play: MaskablePPO learns against a league of its own frozen
+# snapshots plus baseline anchors (training/self_play.py; DESIGN.md,
+# "Multiplayer"). The trainer wraps the two-player env in
+# SelfPlayWrapper whenever the `self_play` block is present.
+#
+# Budget/throughput notes:
+# * Every learner step costs up to two game moves, and snapshot
+#   opponents answer through a neural predict — measured throughput
+#   is far below the raw env's (see README's M6 section), so the
+#   budget is set in *wrapper* steps with that tax in mind.
+# * n_envs 8: DummyVecEnv slots each hold their own opponent pool
+#   over the same snapshot files; more slots = more league diversity
+#   per rollout batch.
+# * eval_freq 25000 with eval_episodes 100: eval plays the wrapped
+#   game against the config's named heuristic anchor (both seats),
+#   so eval episodes are ~2x game length in raw moves — 100 episodes
+#   keeps an eval under a few seconds while staying meaningful.
+#
+# Run 2 (1.5M→2M steps, heuristic 0.3 clean greedy, snapshots
+# 10k, ent 0.02, [256,256] net) fixed the blocking — and then
+# overshot: the learner memorized fork lines against the
+# *deterministic* greedy and swept it 400-0 in the tournament,
+# while minimax swept *it* 0-400 and random still took 8%. A
+# deterministic yardstick at a large share is a textbook to
+# memorize, not an opponent to learn against. (Run 2's process was
+# also killed by a VM restart at 1.85M/2M steps; its best_model
+# and final snapshots were tournamented from disk regardless.)
+#
+# Run 3 (noisy-greedy 0.2 + minimax search anchor 0.1, same
+# budget) cured the specialization — and exposed the next wall:
+# a *perfect seat split*. The tournament read 200-0 as first
+# player and 0-200 as second player against BOTH the greedy and
+# minimax (50% combined vs each), 91% vs random, 100% vs the
+# anchor snapshot. Connect Four is a first-player win with
+# perfect play; the learner had become attack-complete and
+# defense-deficient, and the ~9% it drops to random is the same
+# hole — second-seat games it lets slip.
+#
+# Run 4 tried aiming the budget at the weak seat
+# (second_seat_share 0.65, 2.5M steps). It was killed by a VM
+# restart at 731k steps — and its last snapshot's tournament
+# (200/seat) showed the experiment had already answered itself:
+# greedy 400-0, minimax 0-400, random 94.0% — the run-2
+# specialist profile, fully returned. Oversampling the reply
+# seat oversamples exactly the context where 1-ply opponents
+# are most exploitable by forks, so the specialist basin
+# deepened faster than the minimax anchor could refute it.
+# (Or it is trajectory variance; the seat-bias field remains in
+# the schema, defaulting to an unbiased 0.5, unproven.)
+#
+# SHIPPED RECIPE = run 3's (below). Its best_model is the
+# milestone's measured result — see README's M6 results.
+game: connect_four
+algorithm: maskable_ppo
+total_timesteps: 2000000
+seed: 0
+n_envs: 8
+learning_rate: 0.0003
+gamma: 0.99
+policy: MlpPolicy
+policy_kwargs:
+  net_arch: [256, 256]
+eval_episodes: 100
+eval_freq: 25000
+output_dir: runs
+hyperparams:
+  n_steps: 256
+  batch_size: 512
+  n_epochs: 4
+  ent_coef: 0.02
+  gae_lambda: 0.95
+self_play:
+  snapshot_interval: 10000
+  snapshot_share: 0.55
+  random_share: 0.15
+  heuristic_share: 0.2
+  heuristic: connect_four_greedy_noisy
+  search_share: 0.1
+  search: connect_four_minimax
+  pool_max: 24
+  recency_exponent: 1.0
+  uniform_floor: 0.25

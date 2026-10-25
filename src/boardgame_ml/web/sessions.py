@@ -36,7 +36,7 @@ from typing import Any
 
 import numpy as np
 
-from boardgame_ml.envs import make_env
+from boardgame_ml.envs import TWO_PLAYER_GAMES, make_env
 from boardgame_ml.eval.evaluate import predict_action, resolve_agent
 from boardgame_ml.play import ACTION_NAMES
 
@@ -59,7 +59,19 @@ from boardgame_ml.web.render_state import build_render
 
 
 class WatchSession:
-    """One agent playing one game, stepped by the server."""
+    """One agent playing one game, stepped by the server.
+
+    For **two-player games** (``TWO_PLAYER_GAMES``) a session seats
+    two agents: ``agent`` plays seat 0 and ``opponent`` plays seat 1,
+    chosen per move from the game's ``info["current_player"]``. The
+    opponent defaults to the *same* resolved agent (a mirror match);
+    a baseline name can be supplied instead. Single-agent sessions
+    are untouched by the seam: ``opponent`` stays ``None`` and every
+    move is the one agent's. Session stats keep their meaning as far
+    as they translate: ``episode_return`` accumulates the
+    mover-perspective rewards, so a finished two-player episode has
+    return +1 whenever somebody won and 0 for a draw.
+    """
 
     def __init__(
         self,
@@ -68,11 +80,15 @@ class WatchSession:
         agent,
         agent_label: str,
         seed: int = 0,
+        opponent=None,
+        opponent_label: str | None = None,
     ) -> None:
         self.session_id = uuid.uuid4().hex[:12]
         self.game = game
         self.agent = agent
         self.agent_label = agent_label
+        self.opponent = opponent
+        self.opponent_label = opponent_label
         self.base_seed = seed
         self.env = make_env(game, render_mode="human")
         self.playing = False
@@ -135,6 +151,7 @@ class WatchSession:
             "session_id": self.session_id,
             "game": self.game,
             "agent": self.agent_label,
+            "opponent": self.opponent_label,
             "episode": self.episode,
             "step_in_episode": self.step_in_episode,
             "episode_return": self.episode_return,
@@ -143,10 +160,20 @@ class WatchSession:
             "at": time.time(),
         }
 
+    def _agent_to_move(self):
+        """The seated agent for the side the game is waiting on."""
+        if self.opponent is not None:
+            return (
+                self.agent
+                if self._info.get("current_player", 0) == 0
+                else self.opponent
+            )
+        return self.agent
+
     def step_once(self) -> list[dict]:
         """Advance one action; returns the events to emit (1–3)."""
         render_before = self._render()
-        action = predict_action(self.agent, self.env, self._obs)
+        action = predict_action(self._agent_to_move(), self.env, self._obs)
         self._obs, reward, terminated, truncated, self._info = self.env.step(action)
         reward = float(reward)
         done = bool(terminated or truncated)
@@ -235,6 +262,7 @@ class SessionManager:
         run_id: str | None = None,
         checkpoint: str = "best_model",
         seed: int = 0,
+        opponent: str | None = None,
     ) -> WatchSession:
         """Resolve the agent spec and open a session.
 
@@ -242,6 +270,11 @@ class SessionManager:
         comes from the run's summary); ``agent`` is otherwise a
         baseline name (``random`` / ``basic_strategy`` /
         ``probability``) and ``game`` is required.
+
+        ``opponent`` applies only to two-player games: a *baseline
+        name* for seat 1. Omitted, seat 1 is a mirror of seat 0's
+        agent. It is refused for single-agent games, where it would
+        silently mean nothing.
         """
         if run_id is not None:
             run_dir = self._run_dir(run_id)
@@ -265,8 +298,28 @@ class SessionManager:
         else:
             raise ValueError("Provide either run_id or agent")
 
+        opponent_obj = None
+        opponent_label = None
+        if game in TWO_PLAYER_GAMES:
+            if opponent is not None:
+                opponent_obj = resolve_agent(opponent, game)
+                opponent_label = opponent
+            else:
+                opponent_obj = agent_obj  # mirror match
+                opponent_label = f"{label} (mirror)"
+        elif opponent is not None:
+            raise ValueError(
+                f"Game {game!r} is single-agent; an opponent seat "
+                "only exists for two-player games"
+            )
+
         session = WatchSession(
-            game=game, agent=agent_obj, agent_label=label, seed=seed
+            game=game,
+            agent=agent_obj,
+            agent_label=label,
+            seed=seed,
+            opponent=opponent_obj,
+            opponent_label=opponent_label,
         )
         session.event_log.append(session.state_event())
         with self._lock:

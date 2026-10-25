@@ -43,6 +43,7 @@ export const api = {
       session_id: string;
       game: string;
       agent: string;
+      opponent: string | null;
       initial: import("./types").WatchEvent;
     }>("/api/watch", body),
 };
