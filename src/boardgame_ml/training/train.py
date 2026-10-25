@@ -134,7 +134,20 @@ class EpisodeReturnLogger(BaseCallback):
         self._fh.close()
 
 
-def train(config: ExperimentConfig) -> dict:
+def train(
+    config: ExperimentConfig,
+    *,
+    extra_callbacks: list[BaseCallback] | None = None,
+) -> dict:
+    """Run one training experiment and return its summary dict.
+
+    ``extra_callbacks`` lets embedders (the web cockpit's job runner)
+    observe progress and request an early stop — a callback whose
+    ``_on_step`` returns False ends ``learn`` gracefully, after which
+    this function still saves ``final_model.zip`` and ``summary.json``
+    and the EvalCallback's ``best_model.zip`` (if any eval ran) stays
+    on disk. The CLI passes no extra callbacks; behavior is unchanged.
+    """
     # Mask guard first, before any env/model construction: never pair
     # a mask-blind algorithm with a game that masks (legacy failure #1).
     ensure_mask_compatible(
@@ -173,7 +186,7 @@ def train(config: ExperimentConfig) -> dict:
     start = time.time()
     model.learn(
         total_timesteps=config.total_timesteps,
-        callback=[eval_callback, logger],
+        callback=[eval_callback, logger, *(extra_callbacks or [])],
     )
     elapsed = time.time() - start
     logger.close()

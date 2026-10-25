@@ -6,3 +6,6 @@ runs/
 checkpoints/
 *.egg-info/
 src/*.egg-info/
+web/node_modules/
+web/dist/
+web/*.tsbuildinfo

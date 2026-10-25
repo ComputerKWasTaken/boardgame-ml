@@ -52,6 +52,48 @@ python3 -m venv .venv
 .venv/bin/python -m pytest
 ```
 
+## Web cockpit
+
+A local web interface to the framework — browse games and runs,
+train agents with live progress, and watch trained agents play —
+served by one process on your own machine. Training stays
+Python-side (this wraps the framework's trainer; it does not
+reimplement it), and runs/checkpoints stay on disk in `runs/`. The
+browser's localStorage holds only the personal layer: UI
+preferences, last-used train settings, starred runs, saved replays,
+and watch history.
+
+```bash
+.venv/bin/pip install -e ".[web]"     # FastAPI + uvicorn
+cd web && npm install && npm run build && cd ..
+
+.venv/bin/python -m boardgame_ml.web            # http://127.0.0.1:8765
+.venv/bin/python -m boardgame_ml.web --open     # …and open the browser
+# (or the console script: boardgame-ml-web)
+```
+
+Three views:
+
+* **Games & Runs** — game cards with baseline reference numbers
+  (the proof-of-learning yardsticks, measured live by the evaluator)
+  and a table of runs from `runs/` with best-eval returns; star
+  runs, and jump straight to watching any checkpoint or baseline.
+* **Train** — game / algorithm / preset (quick · standard · long)
+  with timesteps, learning-rate, and seed editable; a live chart of
+  episode returns with deterministic eval means as they land (SSE
+  stream from the training job). **Stop** ends training gracefully
+  and keeps the best-by-eval checkpoint (a job stopped before its
+  first eval keeps `final_model.zip` only).
+* **Watch** — pick a run checkpoint or a baseline and watch it play
+  live (WebSocket-streamed steps; play / pause / step / speed), with
+  per-game boards, an action feed, and session stats. **Save
+  replay** stores the session's event log in localStorage; replays
+  re-play purely client-side, no server stepping needed.
+
+Frontend development: run the backend as above, then
+`cd web && npm run dev` — the Vite dev server on :5173 proxies
+`/api` (HTTP + WebSocket) to :8765.
+
 ## M1 results — proof of learning
 
 All numbers below are **independent evaluations**: greedy (deterministic)
@@ -133,8 +175,9 @@ trainer, evaluator, or viewer changes.
 ## Layout
 
 ```
-src/boardgame_ml/   envs/ agents/ training/ eval/ play.py
+src/boardgame_ml/   envs/ agents/ training/ eval/ play.py, web/ (cockpit backend)
+web/                React + Vite + TypeScript frontend (builds to web/dist/)
 configs/            experiment YAMLs
-tests/              contract, rules, config-plumbing, baseline tests
+tests/              contract, rules, config-plumbing, baseline, web API tests
 runs/               training output (git-ignored)
 ```

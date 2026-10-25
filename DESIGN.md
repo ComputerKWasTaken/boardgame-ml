@@ -25,7 +25,13 @@ src/boardgame_ml/
 │   └── train.py           SB3 trainer CLI
 ├── eval/
 │   └── evaluate.py        Greedy evaluation + strategy-agreement metrics
-└── play.py                Text "watch it play" viewer
+├── play.py                Text "watch it play" viewer
+└── web/                   Local web cockpit (FastAPI backend)
+    ├── app.py             API: games / runs / train jobs / watch sessions
+    ├── jobs.py            Background training jobs (the trainer + callbacks)
+    ├── sessions.py        Watch sessions (env stepped by predict_action)
+    └── render_state.py    Per-game JSON render payloads for the frontend
+web/                       React + Vite + TypeScript frontend (repo root)
 configs/                   One YAML per experiment
 tests/                     Contract, rules, config, and baseline tests
 runs/                      Training output (checkpoints, logs, summaries)
@@ -139,7 +145,14 @@ with `summary.json`).
 
 * More games behind the same contract (the real test of modularity),
   including a multi-player game via a PettingZoo-style wrapper.
-* Graphical watch viewer (the text viewer in `play.py` isolates the
-  decision point it will need).
+* ~~Graphical watch viewer~~ — **done**: the web cockpit
+  (`src/boardgame_ml/web/` + `web/`) serves a local React UI from
+  the same process as its FastAPI backend. It consumes the framework
+  only through existing contracts — training runs the trainer (via
+  an added optional `extra_callbacks` hook, used for live progress
+  and graceful stop), watch sessions step envs with the evaluator's
+  `predict_action`, and run browsing parses `summary.json` files.
+  The per-game `render` payload (`web/render_state.py`) is the seam
+  a new game extends to appear in the viewer.
 * Bot API: load a checkpoint, accept a game state, return a move —
   `eval.evaluate::predict_action` is that core already.
