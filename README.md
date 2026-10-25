@@ -27,6 +27,29 @@ training noise) to the structural decision here that prevents it.
   blackjack) agreement with basic strategy — the proof-of-learning
   harness.
 
+## Milestone 3 — Match 3
+
+The third game is the one that was unlearnable in the legacy project,
+added through the framework's public seams only (env module, registry
+line, baselines, YAML, render builder, frontend board):
+
+* **Match 3** — 8×8 board, 6 gem types, swap-to-match with gravity,
+  refills, and cascade chains. Observation is a Dict of one-hot gem
+  planes `(6, 8, 8)` + moves remaining (no scalar gem IDs); the
+  256-action space carries a true legal-move mask, computed once per
+  state and cached; the reward is the game's own score (component
+  3/4/5/6+ → 10/25/50/100, × cascade level) with no shaping. Board
+  size, gem count, and move budget are YAML `env_kwargs`; the policy
+  is `MultiInputPolicy`, also from YAML.
+* Baselines: uniform-random over legal moves, and a 1-ply **greedy**
+  agent (maximizes the points the swap itself scores).
+* The web cockpit gained a Match 3 board (colored tile grid, legend,
+  cascade badge) and its Games & Runs card.
+* One framework finding, fixed at the seam: SB3's `EvalCallback`
+  predicts unmasked, which hangs forever on a game with real illegal
+  actions — the trainer now uses sb3-contrib's `MaskableEvalCallback`
+  for MaskablePPO. See [DESIGN.md](DESIGN.md#match-3-m3--the-frameworks-final-exam).
+
 ## Quickstart
 
 ```bash
@@ -36,10 +59,12 @@ python3 -m venv .venv
 # Train (configs are in configs/)
 .venv/bin/python -m boardgame_ml.training.train --config configs/blackjack_maskable_ppo.yaml
 .venv/bin/python -m boardgame_ml.training.train --config configs/higher_or_lower_ppo.yaml
+.venv/bin/python -m boardgame_ml.training.train --config configs/match3_maskable_ppo.yaml
 
 # Evaluate: baselines…
 .venv/bin/python -m boardgame_ml.eval.evaluate --game blackjack --agent random
 .venv/bin/python -m boardgame_ml.eval.evaluate --game blackjack --agent basic_strategy
+.venv/bin/python -m boardgame_ml.eval.evaluate --game match3 --agent greedy
 # …or a trained checkpoint
 .venv/bin/python -m boardgame_ml.eval.evaluate --game blackjack \
     --agent runs/blackjack_maskable_ppo_s0/best_model.zip --episodes 5000
@@ -141,6 +166,44 @@ fix that reports the 10-turn limit as a truncation rather than a
 termination; the measured return is unchanged within noise, as
 expected — the optimal policy for this game is myopic, so corrected
 end-of-episode bootstrapping has nothing to change.
+
+## M3 results — Match 3 (mean score per 20-move episode)
+
+Independent evaluations with the same harness — 1,000 episodes,
+per-episode seeds starting at 777000, which training never saw:
+
+| Agent | Mean score | ± SEM |
+|---|---|---|
+| Random (legal moves only) | 568.3 | 6.7 |
+| **Greedy** (1-ply, maximizes the swap's own points) | 571.6 | 6.2 |
+| **MaskablePPO**, 700k steps (best-by-eval) | **701.8** | 8.2 |
+
+Three honest observations:
+
+* **The trained agent learned — decisively.** +23.5% over random is
+  ~12 standard errors of the difference; there is no plausible world
+  where this checkpoint is not a genuinely better player. It also
+  beats the greedy yardstick by ~23%.
+* **"Multiple-fold over random" was never on the table.** In this
+  game a *legal* move scores by definition, so uniform-random legal
+  play already banks ~570 points an episode, most of it cascade
+  luck. The headroom above that floor is what learning can claim —
+  and +23% of the total is a large share of it.
+* **Greedy is a weak yardstick here, and the trained agent proves
+  why.** Greedy's chosen moves score more *immediately* than
+  anyone's (15.4 first-cascade points per move vs 11.5 for both
+  random and the trained agent), yet greedy ties random over full
+  episodes: its big clears break up the near-match structures that
+  produce level-2+ cascades (random earns ~17.5 cascade points per
+  move to greedy's ~12.8). The trained policy's immediate-match
+  quality is exactly random's — its entire edge comes from the
+  board it leaves behind. PPO found the positional structure that
+  1-ply greed cannot see.
+
+Training: 700,000 steps in 954 s (~734 steps/s, 2-core VM),
+best-by-eval checkpoint selected at a deterministic-eval mean of
+745.4 (a 200-episode window during training; the 1,000-episode
+independent figure above is the headline).
 
 ## Post-M1 hardening
 

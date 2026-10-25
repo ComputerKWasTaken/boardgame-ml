@@ -105,6 +105,54 @@ def test_cnn_policy_reaches_model(tmp_path):
     assert "Cnn" in type(model.policy).__name__
 
 
+# -- Match 3 parameterization (M3): the YAML is the whole integration --
+
+
+def test_match3_shipped_config_loads():
+    from pathlib import Path
+
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "configs"
+        / "match3_maskable_ppo.yaml"
+    )
+    cfg = ExperimentConfig.from_yaml(path)
+    assert cfg.game == "match3"
+    assert cfg.algorithm == "maskable_ppo"
+    assert cfg.policy == "MultiInputPolicy"
+    assert cfg.env_kwargs == {
+        "board_rows": 8,
+        "board_cols": 8,
+        "num_gems": 6,
+        "max_moves": 20,
+    }
+
+
+def test_match3_policy_and_env_kwargs_reach_construction():
+    """The M3 proof: MultiInputPolicy + env_kwargs arrive from YAML.
+
+    Before the parameterization fix, the trainer hardcoded MlpPolicy
+    and games took no constructor kwargs, so a Dict-observation game
+    could not be trained at all without editing trainer code.
+    """
+    cfg = ExperimentConfig(
+        game="match3",
+        algorithm="maskable_ppo",
+        policy="MultiInputPolicy",
+        env_kwargs={"board_rows": 6, "board_cols": 7, "num_gems": 4, "max_moves": 9},
+    )
+    env = build_single_env(cfg.game, env_kwargs=cfg.env_kwargs)
+    raw = env.unwrapped
+    assert (raw.board_rows, raw.board_cols, raw.num_gems, raw.max_moves) == (
+        6,
+        7,
+        4,
+        9,
+    )
+    model = build_model(cfg, env)
+    assert "MultiInput" in type(model.policy).__name__
+
+
 # -- fail-fast validation (hardening fix 7) ------------------------------
 
 

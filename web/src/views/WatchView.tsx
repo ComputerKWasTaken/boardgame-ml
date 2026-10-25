@@ -5,6 +5,7 @@ import { store } from "../storage";
 import type {
   BlackjackRender,
   HolRender,
+  Match3Render,
   Replay,
   RunEntry,
   GameInfo,
@@ -31,6 +32,11 @@ function feedLine(ev: WatchEvent): string {
   if (ev.game === "blackjack" && ev.render) {
     const r = ev.render as BlackjackRender;
     return `${head} — player ${r.player_total}${r.player_soft ? " soft" : ""} vs ${r.dealer_upcard}`;
+  }
+  if (ev.game === "match3" && ev.render) {
+    const r = ev.render as Match3Render;
+    const casc = r.last_move && r.last_move.cascades > 1 ? ` · cascade ×${r.last_move.cascades}` : "";
+    return `${head} (${fmt(ev.reward ?? 0)}) — score ${r.score} · ${r.moves_left} moves left${casc}`;
   }
   return `${head} (${fmt(ev.reward ?? 0)})`;
 }

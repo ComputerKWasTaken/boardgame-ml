@@ -6,11 +6,11 @@ see at the table. The shape is deliberately generic::
 
     {"game": <name>, "text": <the env's text render>, ...game fields...}
 
-so a future game (Match 3: a ``board`` field) plugs in by adding one
-builder here, with no protocol change. Game-specific builders read the
-env's real state (hands, current card) rather than decoding the
-normalized observation — the observation is the *agent's* interface,
-not the viewer's.
+so a new game (Match 3 added a ``board`` grid field this way) plugs
+in by adding one builder here, with no protocol change. Game-specific
+builders read the env's real state (hands, current card) rather than
+decoding the normalized observation — the observation is the
+*agent's* interface, not the viewer's.
 """
 
 from __future__ import annotations
@@ -51,9 +51,22 @@ def _higher_or_lower(env, info: dict, reveal: bool) -> dict:
     }
 
 
+def _match3(env, info: dict, reveal: bool) -> dict:
+    return {
+        "board": [[int(v) for v in row] for row in env.board],
+        "gems": env.num_gems,
+        "score": env.score,
+        "moves_left": env.moves_left,
+        "moves_used": env.moves_used,
+        "max_moves": env.max_moves,
+        "last_move": info.get("last_move"),
+    }
+
+
 _BUILDERS = {
     "blackjack": _blackjack,
     "higher_or_lower": _higher_or_lower,
+    "match3": _match3,
 }
 
 

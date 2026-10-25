@@ -1,0 +1,30 @@
+# Match 3 — the framework's final exam, configured entirely from YAML:
+# the policy class (MultiInputPolicy for the Dict one-hot observation)
+# and every game parameter arrive through policy/policy_kwargs/
+# env_kwargs. No trainer code knows this game exists.
+game: match3
+algorithm: maskable_ppo
+total_timesteps: 700000
+seed: 0
+n_envs: 8
+learning_rate: 0.0003
+gamma: 0.99
+policy: MultiInputPolicy
+policy_kwargs:
+  net_arch:
+    pi: [256, 256]
+    vf: [256, 256]
+env_kwargs:
+  board_rows: 8
+  board_cols: 8
+  num_gems: 6
+  max_moves: 20
+eval_episodes: 200
+eval_freq: 25000
+output_dir: runs
+hyperparams:
+  n_steps: 256
+  batch_size: 512
+  n_epochs: 4
+  ent_coef: 0.01
+  gae_lambda: 0.95

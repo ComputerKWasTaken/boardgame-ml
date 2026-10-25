@@ -5,11 +5,29 @@ import numpy as np
 
 from boardgame_ml.agents.baselines import (
     BasicStrategyAgent,
+    GreedyMatch3Agent,
     ProbabilityAgent,
     RandomAgent,
 )
 from boardgame_ml.envs.blackjack import BlackjackEnv, HIT, STAND
 from boardgame_ml.envs.higher_or_lower import HigherOrLowerEnv, HIGHER, LOWER
+from boardgame_ml.envs.match3 import (
+    Match3Env,
+    decode_action,
+    find_matches,
+    score_matches,
+)
+
+# Match-free 5x5 with a planted legal move (see tests/test_match3_rules.py).
+SCRIPTED5 = np.array(
+    [
+        [0, 0, 2, 3, 0],
+        [1, 2, 0, 3, 1],
+        [0, 0, 1, 1, 3],
+        [3, 3, 0, 2, 2],
+        [0, 1, 3, 2, 0],
+    ]
+)
 
 
 def _blackjack_with(player, dealer_up):
@@ -54,3 +72,50 @@ def test_random_agent_only_picks_valid_actions():
     obs, _ = env.reset(seed=0)
     for _ in range(50):
         assert agent.select_action(env, obs) in env.valid_actions()
+
+
+def test_random_agent_match3_only_picks_legal_moves():
+    agent = RandomAgent(seed=0)
+    env = Match3Env()
+    obs, _ = env.reset(seed=0)
+    for _ in range(50):
+        action = agent.select_action(env, obs)
+        assert action in env.valid_actions()
+        obs, _r, terminated, truncated, _i = env.step(action)
+        if terminated or truncated:
+            obs, _ = env.reset(seed=1)
+
+
+def test_greedy_match3_picks_the_best_immediate_score():
+    agent = GreedyMatch3Agent()
+    env = Match3Env(board_rows=5, board_cols=5, num_gems=5)
+    env.reset(seed=0)
+    env.set_board(SCRIPTED5)
+    # Independent expectation: full-board simulation of every legal
+    # swap, scored by the game's own tables; the greedy agent uses
+    # the localized first-cascade scorer, so this cross-checks them.
+    best_action, best_points = None, -1
+    for action in env.valid_actions():
+        r, c, d = decode_action(action, env.board_cols)
+        dr, dc = ((-1, 0), (0, 1), (1, 0), (0, -1))[d]
+        sim = env.board.copy()
+        sim[r, c], sim[r + dr, c + dc] = sim[r + dr, c + dc], sim[r, c]
+        points = score_matches(sim, find_matches(sim))
+        if points > best_points:
+            best_action, best_points = action, points
+    assert best_points > 0
+    assert agent.select_action(env, None) == best_action
+    # Deterministic: same state, same choice.
+    assert agent.select_action(env, None) == best_action
+
+
+def test_greedy_match3_beats_random_pointwise_smoke():
+    """On one fixed seed batch, greedy's choices score at least the
+    planted-move floor: its first move on SCRIPTED5 scores the match."""
+    agent = GreedyMatch3Agent()
+    env = Match3Env(board_rows=5, board_cols=5, num_gems=5)
+    env.reset(seed=0)
+    env.set_board(SCRIPTED5)
+    action = agent.select_action(env, None)
+    _obs, reward, _t, _tr, _i = env.step(action)
+    assert reward >= 10

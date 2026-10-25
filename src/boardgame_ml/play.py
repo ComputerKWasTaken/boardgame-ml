@@ -15,11 +15,25 @@ from __future__ import annotations
 import argparse
 
 from boardgame_ml.envs import make_env
+from boardgame_ml.envs import match3 as _m3
 from boardgame_ml.eval.evaluate import predict_action, resolve_agent
+
+
+def _match3_action_names() -> dict[int, str]:
+    """Compact ``row,col<arrow>`` names for the standard 8x8 board."""
+    arrows = {_m3.UP: "↑", _m3.RIGHT: "→", _m3.DOWN: "↓", _m3.LEFT: "←"}
+    names: dict[int, str] = {}
+    for cell in range(_m3.DEFAULT_ROWS * _m3.DEFAULT_COLS):
+        row, col = divmod(cell, _m3.DEFAULT_COLS)
+        for direction in range(4):
+            names[cell * 4 + direction] = f"{row},{col}{arrows[direction]}"
+    return names
+
 
 ACTION_NAMES = {
     "blackjack": {0: "STAND", 1: "HIT"},
     "higher_or_lower": {0: "HIGHER", 1: "LOWER", 2: "HOLD"},
+    "match3": _match3_action_names(),
 }
 
 

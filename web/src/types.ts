@@ -104,7 +104,31 @@ export interface HolRender {
   history: HolGuess[];
 }
 
-export type RenderState = BlackjackRender | HolRender | { game: string; text?: string };
+export interface Match3LastMove {
+  from: [number, number];
+  direction: number;
+  to: [number, number];
+  points: number;
+  cascades: number;
+}
+
+export interface Match3Render {
+  game: "match3";
+  text?: string;
+  board: number[][];
+  gems: number;
+  score: number;
+  moves_left: number;
+  moves_used: number;
+  max_moves: number;
+  last_move: Match3LastMove | null;
+}
+
+export type RenderState =
+  | BlackjackRender
+  | HolRender
+  | Match3Render
+  | { game: string; text?: string };
 
 export interface SessionStats {
   episodes_completed: number;

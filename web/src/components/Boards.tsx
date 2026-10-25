@@ -1,6 +1,11 @@
 // Game boards: render-state -> visual board, per game.
 
-import type { BlackjackRender, HolRender, RenderState } from "../types";
+import type {
+  BlackjackRender,
+  HolRender,
+  Match3Render,
+  RenderState,
+} from "../types";
 
 function cardLabel(v: number): string {
   return v === 1 ? "A" : String(v);
@@ -87,12 +92,83 @@ export function HigherOrLowerBoard({ render }: { render: HolRender }) {
   );
 }
 
+export const GEM_COLORS = [
+  "#e5534b",
+  "#f0883e",
+  "#e3b341",
+  "#3fb950",
+  "#58a6ff",
+  "#bc8cff",
+  "#f778ba",
+  "#39c5cf",
+];
+
+export function gemLetter(v: number): string {
+  return String.fromCharCode(65 + v); // A, B, C, ...
+}
+
+export function Match3Board({ render }: { render: Match3Render }) {
+  const rows = render.board.length;
+  const cols = rows > 0 ? render.board[0].length : 0;
+  const swapped = new Set<string>();
+  if (render.last_move) {
+    swapped.add(render.last_move.from.join(","));
+    swapped.add(render.last_move.to.join(","));
+  }
+  return (
+    <div className="board match3-board">
+      <div className="match3-header">
+        <div>
+          Score <strong>{render.score}</strong>
+        </div>
+        <div>
+          Moves left <strong>{render.moves_left}</strong> / {render.max_moves}
+        </div>
+        {render.last_move && render.last_move.cascades > 1 && (
+          <div className="badge">cascade ×{render.last_move.cascades}</div>
+        )}
+      </div>
+      <div
+        className="match3-grid"
+        style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}
+      >
+        {render.board.map((row, r) =>
+          row.map((v, c) => (
+            <div
+              key={`${r}-${c}`}
+              className={`match3-tile${swapped.has(`${r},${c}`) ? " swapped" : ""}`}
+              style={{ background: GEM_COLORS[v % GEM_COLORS.length] }}
+              title={`gem ${gemLetter(v)}`}
+            >
+              {gemLetter(v)}
+            </div>
+          )),
+        )}
+      </div>
+      <div className="match3-legend">
+        {Array.from({ length: render.gems }, (_, v) => (
+          <span key={v} className="legend-chip">
+            <span
+              className="legend-swatch"
+              style={{ background: GEM_COLORS[v % GEM_COLORS.length] }}
+            />
+            {gemLetter(v)}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Board({ render }: { render: RenderState }) {
   if (render.game === "blackjack") {
     return <BlackjackBoard render={render as BlackjackRender} />;
   }
   if (render.game === "higher_or_lower") {
     return <HigherOrLowerBoard render={render as HolRender} />;
+  }
+  if (render.game === "match3") {
+    return <Match3Board render={render as Match3Render} />;
   }
   return (
     <div className="board">

@@ -32,6 +32,8 @@ import numpy as np
 import sb3_contrib
 import stable_baselines3
 import torch
+from sb3_contrib import MaskablePPO
+from sb3_contrib.common.maskable.callbacks import MaskableEvalCallback
 from sb3_contrib.common.wrappers import ActionMasker
 from stable_baselines3.common.callbacks import BaseCallback, EvalCallback
 from stable_baselines3.common.monitor import Monitor
@@ -172,7 +174,20 @@ def train(
 
     model = build_model(config, train_env)
 
-    eval_callback = EvalCallback(
+    # MaskablePPO must be *evaluated* with masks too: SB3's plain
+    # EvalCallback predicts unmasked, which was invisible while every
+    # game's mask was trivially all-True (M1/M2) but is fatal for a
+    # game with real illegal actions — an unmasked deterministic
+    # prediction can pick a rejected action on the same state forever
+    # and the eval episode never ends (found by Match 3, M3).
+    # MaskableEvalCallback is the same callback, mask-aware; the
+    # non-maskable algorithms keep the standard one.
+    eval_callback_cls = (
+        MaskableEvalCallback
+        if MODEL_CLASSES[config.algorithm] is MaskablePPO
+        else EvalCallback
+    )
+    eval_callback = eval_callback_cls(
         eval_env,
         best_model_save_path=str(run_dir),
         log_path=str(run_dir / "eval_logs"),

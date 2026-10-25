@@ -514,6 +514,63 @@ th {
   color: var(--neg);
 }
 
+.match3-header {
+  display: flex;
+  gap: 1.5rem;
+  align-items: center;
+  color: var(--muted);
+  margin-bottom: 0.8rem;
+}
+
+.match3-header strong {
+  color: var(--text);
+}
+
+.match3-grid {
+  display: grid;
+  gap: 4px;
+  max-width: 430px;
+}
+
+.match3-tile {
+  aspect-ratio: 1;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: rgba(6, 10, 16, 0.78);
+  user-select: none;
+}
+
+.match3-tile.swapped {
+  outline: 2px solid var(--text);
+  outline-offset: -2px;
+}
+
+.match3-legend {
+  display: flex;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  margin-top: 0.7rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
 .stats-bar {
   display: flex;
   gap: 1.25rem;

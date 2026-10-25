@@ -13,6 +13,7 @@ import numpy as np
 from boardgame_ml.envs.base import BaseGameEnv
 from boardgame_ml.envs import blackjack as bj
 from boardgame_ml.envs import higher_or_lower as hol
+from boardgame_ml.envs import match3 as m3
 
 
 class BaselineAgent:
@@ -29,7 +30,7 @@ class RandomAgent(BaselineAgent):
     """Uniform random over currently legal actions."""
 
     name = "random"
-    games = ("blackjack", "higher_or_lower")
+    games = ("blackjack", "higher_or_lower", "match3")
 
     def __init__(self, seed: int | None = None) -> None:
         self._rng = np.random.default_rng(seed)
@@ -107,8 +108,50 @@ class ProbabilityAgent(BaselineAgent):
         return hol.HIGHER if p_higher >= p_lower else hol.LOWER
 
 
+class GreedyMatch3Agent(BaselineAgent):
+    """1-ply greedy agent for Match 3 — the learnability yardstick.
+
+    For every legal swap, simulate it and score **only the matches
+    the swap itself creates** (cascade level 1) using the game's own
+    component table — :func:`boardgame_ml.envs.match3.swap_first_cascade_score`,
+    which inspects just the lines through the two swapped cells.
+    Cascades after the first are luck (they depend on random refills),
+    so ignoring them is both the documented simplification and the
+    honest one: this agent maximizes immediate, knowable score.
+
+    Deterministic: actions are scanned in ascending index order and
+    only a strictly higher score replaces the incumbent, so ties
+    break toward the lowest action index.
+    """
+
+    name = "greedy"
+    games = ("match3",)
+
+    def select_action(self, env: BaseGameEnv, obs: np.ndarray) -> int:
+        assert isinstance(env, m3.Match3Env)
+        best_action: int | None = None
+        best_points = -1
+        for action in env.valid_actions():
+            row, col, direction = m3.decode_action(action, env.board_cols)
+            dr, dc = m3.DIRS[direction]
+            points = m3.swap_first_cascade_score(
+                env.board, row, col, row + dr, col + dc
+            )
+            if points > best_points:
+                best_points = points
+                best_action = action
+        assert best_action is not None  # env guarantees >= 1 legal move
+        return best_action
+
+
 BASELINES: dict[str, type[BaselineAgent]] = {
-    cls.name: cls for cls in (RandomAgent, BasicStrategyAgent, ProbabilityAgent)
+    cls.name: cls
+    for cls in (
+        RandomAgent,
+        BasicStrategyAgent,
+        ProbabilityAgent,
+        GreedyMatch3Agent,
+    )
 }
 
 

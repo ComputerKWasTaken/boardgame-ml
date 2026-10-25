@@ -25,8 +25,15 @@ def test_action_mask_shape_and_dtype(game):
     mask = env.action_masks()
     assert mask.shape == (env.action_space.n,)
     assert mask.dtype == bool
-    # M1 games never mask anything out; the machinery is still exercised.
-    assert mask.all()
+    if game == "match3":
+        # The first game with real illegal actions: most swaps create
+        # no match, so some actions must be masked out — and board
+        # generation guarantees at least one legal move.
+        assert mask.any()
+        assert not mask.all()
+    else:
+        # M1 games never mask anything out; the machinery is still exercised.
+        assert mask.all()
 
 
 @pytest.mark.parametrize("game", GAMES)
@@ -41,16 +48,27 @@ def test_mask_consistent_after_steps(game):
             break
 
 
+def _assert_obs_equal(a, b):
+    """Observation equality that understands Dict observations."""
+    if isinstance(a, dict):
+        assert a.keys() == b.keys()
+        for key in a:
+            np.testing.assert_array_equal(a[key], b[key])
+    else:
+        np.testing.assert_array_equal(a, b)
+
+
 @pytest.mark.parametrize("game", GAMES)
 def test_seeded_reset_is_reproducible(game):
     env_a, env_b = make_env(game), make_env(game)
     obs_a, _ = env_a.reset(seed=42)
     obs_b, _ = env_b.reset(seed=42)
-    np.testing.assert_array_equal(obs_a, obs_b)
+    _assert_obs_equal(obs_a, obs_b)
     for _ in range(3):
-        step_a = env_a.step(0)
-        step_b = env_b.step(0)
-        np.testing.assert_array_equal(step_a[0], step_b[0])
+        action = env_a.valid_actions()[0]
+        step_a = env_a.step(action)
+        step_b = env_b.step(action)
+        _assert_obs_equal(step_a[0], step_b[0])
         assert step_a[1] == step_b[1]
         if step_a[2] or step_a[3]:
             break

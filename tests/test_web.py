@@ -73,7 +73,7 @@ def client(fixture_runs):
 def test_games_endpoint(client):
     games = client.get("/api/games").json()
     by_name = {g["name"]: g for g in games}
-    assert set(by_name) == {"blackjack", "higher_or_lower"}
+    assert set(by_name) == {"blackjack", "higher_or_lower", "match3"}
     bj = by_name["blackjack"]
     assert [a["name"] for a in bj["actions"]] == ["STAND", "HIT"]
     baseline_names = {b["name"] for b in bj["baselines"]}
@@ -81,6 +81,19 @@ def test_games_endpoint(client):
     for b in bj["baselines"]:
         assert b["episodes"] == 1000
         assert -1.6 <= b["mean_return"] <= 1.6
+
+    m3 = by_name["match3"]
+    assert m3["display_name"] == "Match 3"
+    # 256 actions are summarized, not enumerated.
+    assert len(m3["actions"]) == 1
+    assert {b["name"] for b in m3["baselines"]} == {"random", "greedy"}
+    for b in m3["baselines"]:
+        assert b["episodes"] == 1000
+        assert b["mean_return"] > 0  # match-3 scores are positive points
+    # No greedy > random assertion: measured honestly, 1-ply greedy is
+    # NOT stronger than random over full episodes in this game (its
+    # bigger clears break up the near-matches that feed cascades).
+    # See DESIGN.md's Match 3 section.
 
 
 def test_runs_endpoints(client):

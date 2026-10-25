@@ -17,9 +17,10 @@ src/boardgame_ml/
 ├── envs/
 │   ├── base.py            BaseGameEnv: the game contract
 │   ├── blackjack.py       BlackjackEnv
-│   └── higher_or_lower.py HigherOrLowerEnv
+│   ├── higher_or_lower.py HigherOrLowerEnv
+│   └── match3.py          Match3Env (one-hot planes, true action masks)
 ├── agents/
-│   └── baselines.py       Random / basic-strategy / probability agents
+│   └── baselines.py       Random / basic-strategy / probability / greedy agents
 ├── training/
 │   ├── config.py          ExperimentConfig dataclass tree (YAML-loaded)
 │   └── train.py           SB3 trainer CLI
@@ -134,17 +135,104 @@ code-level autopsy. Each maps to a structural fix here:
 | 2 | **Config that reached nothing.** The PPO agent read hyperparameters from YAML keys that didn't exist and silently fell back to hardcoded defaults; tuning had no effect. | Config is a typed dataclass, loaded in one place, passed explicitly into the trainer and model constructor — no singletons or globals to bypass. Unknown YAML keys are *rejected*. `tests/test_config.py::test_learning_rate_reaches_model` is a regression test: an absurd learning rate in YAML must appear in the model's optimizer, or CI goes red. |
 | 3 | **Reward shaping changed the game being learned.** Blackjack shaping paid up to +1.4 for a single "good" hit — more than the +1.0 for winning the hand — and fined correct basic-strategy plays. The agent diligently optimized the surrogate instead of blackjack. | Rewards are terminal-only and equal to the game's actual outcome (+1/−1/0, +1.5 natural; ±1/0 per card guess). Any future shaping must be potential-based (provably policy-invariant) and documented in the env module. A test asserts non-terminal blackjack rewards are exactly 0. |
 | 4 | **"Best" checkpoints picked from training noise.** The best checkpoint was the best trailing window of *training* returns — exploration-contaminated, high-variance, and often just a lucky streak, so the saved "best" model was frequently not the best policy. | Checkpoints are selected by periodic **deterministic evaluation on a separate env** (`EvalCallback`); training returns are logged only as diagnostics in `train_log.csv`. |
-| 5 | **An unlearnable representation** (a board game encoded as scalar category IDs fed to an MLP, erasing spatial structure). | Out of M1 scope, but the contract doesn't force flat vectors: observation spaces are per-game, and a future board game can expose multi-channel planes for a CNN policy without touching the trainer. |
+| 5 | **An unlearnable representation** (a board game encoded as scalar category IDs fed to an MLP, erasing spatial structure). | Discharged in M3 (see "Match 3" below): the contract never forced flat vectors — observation spaces are per-game, and Match 3 exposes multi-channel one-hot planes through a Dict space with `MultiInputPolicy` selected from YAML, no trainer changes. |
 
 Two legacy ideas were kept, deliberately: the small abstract game
 interface (here in Gymnasium shape, so the ecosystem's tooling applies),
 and per-game checkpoint organization with metadata (here: run dirs
 with `summary.json`).
 
+## Match 3 (M3) — the framework's final exam
+
+Match 3 was the legacy project's worst casualty — the game where all
+three learning failures stacked (scalar-ID representation, dropped
+masks in a 256-action space ~90% illegal, brute-force legality). It
+was added here through the public seams only: one env module, one
+registry line, baselines, one YAML, one render-state builder, one
+frontend board. What it exercised, and what it found:
+
+**Representation.** The observation is a Dict: `board` — one-hot
+planes `(num_gems, rows, cols)` float32, one channel per gem type —
+plus `moves_left` (normalized scalar). No scalar gem IDs anywhere:
+gem types are categories, and the tensor says so. The policy is
+SB3's `MultiInputPolicy`, named **in the YAML** (`policy:` +
+`policy_kwargs.net_arch`), and the game parameters arrive via
+`env_kwargs` the same way — the M2 parameterization carrying exactly
+the load it was built for. SB3's `CombinedExtractor` flattens the
+planes into the MLP; at a fixed 8×8 the learned per-position weights
+can express the local patterns the game turns on. A CNN extractor
+(weight sharing, translation invariance) is the natural upgrade if a
+future game needs larger or variable boards; it would be another
+YAML-only change.
+
+**Scoring (the reward, in full).** A move's reward is the game's own
+score for that move — nothing added, divided, or shaped. Each cascade
+level groups its cleared gems into connected components
+(same-type, orthogonally connected — runs that cross or touch merge);
+a component of 3 / 4 / 5 / 6+ gems scores **10 / 25 / 50 / 100**. The
+level's points are multiplied by the cascade level (first match ×1,
+first cascade ×2, …). No move penalty, no terminal bonus. (The
+legacy engine's component scoring table is retained because it is
+the game's intrinsic scoring — its *reward* code, which divided by
+10, fined every move, and invented terminal bonuses, is not.)
+
+**Legality, computed once.** `action_masks()` returns the true legal
+set: a swap is legal iff it creates a run of 3+. On a match-free
+board any run a swap creates passes through one of the two swapped
+cells, so legality is checked locally per adjacent pair (112 pairs)
+and the result is cached until the state changes — the trainer's
+`ActionMasker` calls hit the cache, not a re-simulation. Measured:
+the bare env steps at ~2,300 steps/s single-threaded, and the full
+MaskablePPO run (8 vectorized envs, updates, periodic masked evals)
+sustained 734 steps/s — 700k steps in 954 s on a 2-core VM.
+
+**The dead-board rule.** Board generation fills cells without ever
+completing a run of 3 and re-rolls until the board has at least one
+legal move, so every reset is playable. If a post-resolution board
+has no legal move, it is **reshuffled** — the board's gem multiset
+is permuted until it is match-free with a legal move (fallback: a
+fresh generated board). The check runs even on the episode-ending
+move: the framework invariant is that *every observable state* has
+at least one legal action, because the returned `info` mask must be
+valid. Measured frequency under random play: ~1 reshuffle per 1,200
+moves.
+
+**Illegal actions are rejected, not punished.** Stepping an action
+outside the mask is a no-op: no swap, no points, the move is not
+consumed, `info["illegal_action"] = True`. A masked agent never
+attempts one; the branch defines behavior for unmasked callers
+(`check_env` probes, human error) — and it made the finding below
+*visible* instead of silently corrupting episodes.
+
+**The one trainer change (a modularity finding, not a patch-around).**
+M3's first training run hung forever at the first evaluation
+boundary. Cause: SB3's `EvalCallback` predicts **unmasked** — fine
+while every game's mask was trivially all-True, fatal here: an
+unmasked deterministic prediction can be a rejected swap on the same
+state forever, so the eval episode never ends. sb3-contrib ships
+`MaskableEvalCallback` for exactly this; the trainer now selects it
+when the configured algorithm is MaskablePPO (the standard callback
+otherwise). One class selection at the existing eval seam,
+regression-tested in `tests/test_train_smoke.py`. Everything else
+about M3 — env, masks, policy, parameterization, eval harness,
+watch sessions — needed no framework changes.
+
+**An honest word about the yardstick.** The greedy baseline plays
+1-ply: it maximizes the first cascade's points (measured: 15.4
+points/move vs random's 11.5). Over full episodes it does **not**
+beat random (see README's M3 table) — its bigger clears disturb more
+columns and break up the near-match structures that feed level-2+
+cascades (random earns ~17.5 cascade points per move to greedy's
+~12.8). In this scoring system, immediate-score greed is a weak
+objective. The baseline stays, documented as what it is: the claim
+M3 tests is *learnability* — a trained agent decisively beating
+random — not superhuman play.
+
 ## Roadmap beyond M1
 
-* More games behind the same contract (the real test of modularity),
-  including a multi-player game via a PettingZoo-style wrapper.
+* More games behind the same contract (the real test of modularity)
+  — Match 3 landed in M3 (see above); a multi-player game via a
+  PettingZoo-style wrapper is the remaining frontier.
 * ~~Graphical watch viewer~~ — **done**: the web cockpit
   (`src/boardgame_ml/web/` + `web/`) serves a local React UI from
   the same process as its FastAPI backend. It consumes the framework

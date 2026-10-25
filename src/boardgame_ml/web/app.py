@@ -55,6 +55,15 @@ GAME_INFO: dict[str, dict[str, str]] = {
         "replacement) is higher or lower. +1 correct, −1 wrong, 0 tie; "
         "10 turns per episode.",
     },
+    "match3": {
+        "display_name": "Match 3",
+        "observation": "One-hot gem planes (6, 8, 8) · moves remaining",
+        "blurb": "Swap adjacent gems to match 3 or more. Matches "
+        "clear, gems fall, and cascades chain with a level "
+        "multiplier. 20 moves per episode; the reward is the game's "
+        "own score (a matched component of 3/4/5/6+ gems scores "
+        "10/25/50/100, times the cascade level).",
+    },
 }
 
 _BASE_STEP_SECONDS = 0.9  # watch-mode step interval at speed 1
@@ -185,16 +194,24 @@ def create_app(runs_dir: str | Path = "runs") -> FastAPI:
         for name in GAMES:
             info = GAME_INFO.get(name, {})
             names = ACTION_NAMES.get(name, {})
+            if len(names) > 24:
+                # Games with hundreds of named actions (Match 3: 256)
+                # summarize instead of flooding the card.
+                actions = [
+                    {"index": -1, "name": f"{len(names)} actions (see blurb)"}
+                ]
+            else:
+                actions = [
+                    {"index": i, "name": names.get(i, str(i))}
+                    for i in sorted(names)
+                ]
             games.append(
                 {
                     "name": name,
                     "display_name": info.get("display_name", name),
                     "observation": info.get("observation", ""),
                     "blurb": info.get("blurb", ""),
-                    "actions": [
-                        {"index": i, "name": names.get(i, str(i))}
-                        for i in sorted(names)
-                    ],
+                    "actions": actions,
                     "baselines": _baselines_for(name),
                 }
             )
