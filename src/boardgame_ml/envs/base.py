@@ -1,0 +1,102 @@
+"""Shared base class for every game in the framework.
+
+The contract (see DESIGN.md, "Adding a new game"):
+
+* A game is a :class:`gymnasium.Env` with a ``Discrete`` action space.
+* ``reset(seed=...)`` must be seedable and reproducible.
+* ``action_masks()`` returns a boolean array of shape ``(n_actions,)``
+  marking which actions are legal *right now*. This is the sb3-contrib
+  convention consumed by ``MaskablePPO`` via the ``ActionMasker`` wrapper.
+  The mask is part of the environment's public API — it is never dropped,
+  recomputed differently, or silently ignored between action selection
+  and learning updates (that mismatch is what invalidated the legacy
+  project's PPO objective).
+* ``render()`` returns a human-readable string when
+  ``render_mode="human"``.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import gymnasium as gym
+
+
+def validate_mask(mask, n_actions: int) -> np.ndarray:
+    """Coerce and validate an action mask — loudly.
+
+    ``action_masks()`` implementations are game-author code, so every
+    consumer (the ``ActionMasker`` wiring, the evaluator, the base
+    class's own ``info`` dict) validates through here instead of
+    trusting the return value:
+
+    * lists/tuples and 0/1-valued numeric arrays are coerced to a bool
+      ``np.ndarray`` of shape ``(n_actions,)``;
+    * anything else — wrong shape, non-binary values, or an all-False
+      mask (which would leave the agent with no legal action) — raises
+      ``ValueError`` immediately, at the boundary where it happened.
+    """
+    arr = np.asarray(mask)
+    if arr.shape != (n_actions,):
+        raise ValueError(
+            f"Action mask must have shape ({n_actions},), got shape {arr.shape}"
+        )
+    if arr.dtype != bool:
+        if not bool(np.isin(arr, (0, 1)).all()):
+            raise ValueError(
+                f"Action mask values must be boolean or 0/1, "
+                f"got dtype {arr.dtype} with values {np.unique(arr)!r}"
+            )
+        arr = arr.astype(bool)
+    if not arr.any():
+        raise ValueError(
+            "Action mask allows no actions; at least one action must be legal"
+        )
+    return arr
+
+
+class BaseGameEnv(gym.Env):
+    """Base class all games inherit from. Subclasses must implement
+    ``reset`` and ``step`` and set ``observation_space`` / ``action_space``
+    (a ``gym.spaces.Discrete``) in ``__init__``.
+    """
+
+    metadata = {"render_modes": ["human"], "render_fps": 4}
+
+    def __init__(self, render_mode: str | None = None) -> None:
+        super().__init__()
+        if render_mode is not None and render_mode not in self.metadata["render_modes"]:
+            raise ValueError(f"Unsupported render_mode: {render_mode!r}")
+        self.render_mode = render_mode
+
+    # -- masking ---------------------------------------------------------
+    def action_masks(self) -> np.ndarray:
+        """Boolean mask of legal actions in the current state.
+
+        Default: every action is legal. Games with state-dependent legality
+        override this. Must always return shape ``(action_space.n,)`` and
+        dtype ``bool``.
+        """
+        assert isinstance(self.action_space, gym.spaces.Discrete)
+        return np.ones(self.action_space.n, dtype=bool)
+
+    def valid_actions(self) -> list[int]:
+        """Indices of currently legal actions (convenience for agents)."""
+        assert isinstance(self.action_space, gym.spaces.Discrete)
+        mask = validate_mask(self.action_masks(), self.action_space.n)
+        return [int(a) for a in np.flatnonzero(mask)]
+
+    def _info(self, **extra) -> dict:
+        """Standard info dict; always carries the current (validated) mask."""
+        assert isinstance(self.action_space, gym.spaces.Discrete)
+        info = {"action_mask": validate_mask(self.action_masks(), self.action_space.n)}
+        info.update(extra)
+        return info
+
+    # -- rendering --------------------------------------------------------
+    def render(self) -> str | None:
+        if self.render_mode == "human":
+            return self._render_text()
+        return None
+
+    def _render_text(self) -> str:
+        raise NotImplementedError

@@ -1,0 +1,18 @@
+game: blackjack
+algorithm: dqn
+total_timesteps: 200000
+seed: 0
+n_envs: 4
+learning_rate: 0.0005
+gamma: 0.99
+eval_episodes: 500
+eval_freq: 20000
+output_dir: runs
+hyperparams:
+  buffer_size: 100000
+  batch_size: 128
+  learning_starts: 1000
+  train_freq: 4
+  target_update_interval: 1000
+  exploration_fraction: 0.25
+  exploration_final_eps: 0.05
