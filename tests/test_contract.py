@@ -259,3 +259,51 @@ def test_checkpoint_space_mismatch_is_a_named_error(tmp_path):
         resolve_agent(ckpt, "higher_or_lower")
     # The correct pairing resolves fine.
     assert isinstance(resolve_agent(ckpt, "blackjack"), MaskablePPO)
+
+
+# -- continuous-action games (M5): the mask seam, generalized -----------------
+
+
+def test_box_game_probe_reports_no_masks():
+    # A Box game cannot mask (there is no finite action set to
+    # exclude from), so the probe short-circuits and the guard passes
+    # *every* registered algorithm for it — including mask-blind ones
+    # and SAC — with no allow_unmasked override.
+    assert game_uses_masks("racing") is False
+    for algorithm in ("ppo", "sac", "dqn", "maskable_ppo"):
+        ensure_mask_compatible("racing", algorithm)
+
+
+def test_sac_is_registered():
+    from stable_baselines3 import SAC
+
+    from boardgame_ml.training.algorithms import MODEL_CLASSES
+
+    assert MODEL_CLASSES["sac"] is SAC
+
+
+def test_predict_action_returns_full_vector_for_box_games(tmp_path):
+    from stable_baselines3 import PPO
+
+    env = make_env("racing")
+    model = PPO("MlpPolicy", env, n_steps=64, seed=0, verbose=0)
+    ckpt = str(tmp_path / "racing_ppo")
+    model.save(ckpt)
+    resolved = resolve_agent(ckpt, "racing")
+    obs, _ = env.reset(seed=0)
+    action = predict_action(resolved, env, obs)
+    # The whole (steer, throttle) vector — collapsing it to its first
+    # component would silently evaluate a broken policy.
+    assert isinstance(action, np.ndarray)
+    assert action.shape == env.action_space.shape
+    assert np.isfinite(action).all()
+
+
+def test_predict_action_random_baseline_box():
+    env = make_env("racing")
+    agent = resolve_agent("random", "racing")
+    obs, _ = env.reset(seed=0)
+    action = predict_action(agent, env, obs)
+    assert isinstance(action, np.ndarray)
+    assert action.shape == (2,)
+    assert env.action_space.contains(action.astype(np.float32))

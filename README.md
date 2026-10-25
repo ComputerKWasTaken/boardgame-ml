@@ -78,6 +78,40 @@ thesis that a Gymnasium step is a **time slice**, not a turn:
   and Flappy train presets. See
   [DESIGN.md](DESIGN.md#continuous-games-m4--a-step-is-a-time-slice).
 
+## Milestone 5 — Racing (first continuous-action game)
+
+The last discrete crutch removed: the agent doesn't pick from a
+list of moves, it *drives* — a `Box(2)` of steering and throttle:
+
+* **Racing** — an arcade-bicycle-model car on a fixed closed track
+  (seeded Catmull-Rom loop, 301 m, canonical `track_seed` 7 in the
+  YAML; episode seeds randomize only the spawn point). Physics runs
+  in substeps at 20 decisions/s, with one piece of real racing
+  physics kept: a **grip cap** on lateral acceleration, without
+  which cornering is free and full throttle is trivially optimal
+  (measured: the ungripped prototype lapped at the speed clamp).
+  Corner speed ∝ √(grip · radius), so braking is a learnable skill.
+* **Observation** — an 11-ray fan to the track edges (±90°) plus
+  speed, heading vs the centerline tangent, lateral offset, and
+  current steering: derivatives and lookahead, no pixels, no frame
+  stacking.
+* **Reward** — checkpoint progress in metres, paid once (ordered
+  checkpoints + a high-water mark, so reversing and re-covered
+  ground earn exactly 0 — pinned by tests), +100 per lap. Leaving
+  the track terminates; the 90 s cap truncates.
+* **The mask seam, generalized** — mask machinery is now explicitly
+  Discrete-only: `Box` games are unmaskable, the guard passes any
+  registered algorithm for them, and the evaluator returns full
+  action vectors. **SAC** joined the algorithm registry
+  (smoke-tested through the pipeline) as the sample-efficient
+  alternative to PPO for later tinkering.
+* Baselines: uniform-random over the box (barely leaves the spawn)
+  and an obs-only **raycast wall-follower** heuristic (steers
+  toward open space, laps steadily at ~23.5 s).
+* The cockpit gained a top-down SVG renderer (track ribbon, ray
+  fan, car with steering tick) and racing train presets. See
+  [DESIGN.md](DESIGN.md#racing-m5--continuous-actions).
+
 ## Quickstart
 
 ```bash
@@ -88,6 +122,7 @@ python3 -m venv .venv
 .venv/bin/python -m boardgame_ml.training.train --config configs/blackjack_maskable_ppo.yaml
 .venv/bin/python -m boardgame_ml.training.train --config configs/higher_or_lower_ppo.yaml
 .venv/bin/python -m boardgame_ml.training.train --config configs/match3_maskable_ppo.yaml
+.venv/bin/python -m boardgame_ml.training.train --config configs/racing_ppo.yaml
 
 # Evaluate: baselines…
 .venv/bin/python -m boardgame_ml.eval.evaluate --game blackjack --agent random
@@ -268,6 +303,52 @@ evaluation, whose episodes stretch past 2,000 steps as the agent
 improves. Best-by-eval checkpoint selected at an in-training eval
 mean of 91.9; the 1,000-episode independent figure above is the
 headline.
+
+## M5 results — Racing (mean per episode, 90-second cap)
+
+Independent evaluations with the same harness — 100 episodes,
+per-episode seeds starting at 2000000, which training never saw.
+The track is the canonical seed-7 loop (301 m); spawns are seeded
+per episode, as in training.
+
+| Agent | Return | ± SEM | Progress | Laps / ep | Lap time (mean / best) |
+|---|---|---|---|---|---|
+| Random (uniform box) | 9.5 | 0.6 | 3.2% of a lap | 0 | — |
+| **Heuristic** (raycast wall-follower) | 1447.4 | 0.2 | 380.7% | 3.0 | 23.54 s / 23.1 s |
+| **PPO**, 600k steps (best-by-eval) | **2971.6** | 0.3 | **753.7%** | **7.0** | **11.95 s / 11.35 s** |
+
+Honest observations:
+
+* **The trained agent learned to drive — decisively.** It
+  completes at least one lap in **100%** of episodes (the success
+  bar was 80%), never crashes in 700 evaluated laps, and laps at
+  essentially **twice the heuristic's speed** (11.95 s vs 23.54 s
+  mean lap; average speed ~25 m/s against the wall-follower's ~13).
+  Random, by contrast, never completes a lap: with mean-zero
+  throttle and a bicycle model (no speed, no turn), it barely
+  leaves the spawn.
+* **Gamma was the braking horizon.** At γ = 0.99 the identical
+  setup converged to full-throttle-and-crash and never braked
+  (eval ~140 through 150k steps) — braking's payoff lands seconds
+  after the decision, outside the effective horizon. γ = 0.995
+  (with gae_lambda 0.98) learned to lap within 50–100k steps.
+* **And then PPO fell apart — the run's honest weakness.** Every
+  high-γ run peaked (this one: eval 2971.4 at 75k steps) and then
+  degraded back to the crash attractor (~150) for the remaining
+  ~450k steps; a stabilizer variant (lr 1e-4, full batch,
+  target-KL) collapsed earlier, not later. The shipped checkpoint
+  is the **best-by-eval** one — the framework's checkpoint rule
+  exists for exactly this — while `final_model.zip` is the
+  collapsed policy and should not be used. The mechanism (return
+  scale in the thousands is the leading suspect) is documented as
+  an open problem in DESIGN.md; SAC, now registered and
+  smoke-tested, is the documented next experiment.
+
+Training: 600,000 steps in 475 s of wall clock on this VM
+(~1,260 steps/s including the dense 25k-step evals; the bare env
+steps at ~7,750/s). Best-by-eval checkpoint selected at an
+in-training eval mean of 2971.4; the 100-episode independent
+figure above (2971.6) reproduces it almost exactly.
 
 ## Post-M1 hardening
 

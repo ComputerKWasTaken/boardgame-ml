@@ -1,0 +1,41 @@
+# Racing (M5) — the first continuous-action game. The action space
+# is Box(2) (steering, throttle): there are no action masks at all,
+# so the mask guard passes any registered algorithm and plain PPO
+# (continuous) is the primary. SAC is registered as the
+# sample-efficient alternative for later tinkering (DESIGN.md).
+# The track is canonical: track_seed 7 via env_kwargs, the env's own
+# default — training, eval, and the baselines all face this track;
+# episode seeds randomize only the spawn point on it.
+#
+# Hyperparameter notes (measured, see DESIGN.md's M5 section):
+# gamma 0.995 + gae_lambda 0.98 are what make braking learnable at
+# all — at gamma 0.99 the braking decision's payoff lands outside
+# the effective horizon and the policy converges to full-throttle-
+# and-crash (eval returns stuck at ~140 through 150k steps). At
+# 0.995 the policy learns to lap within ~50-100k steps (eval peaks
+# ~2900, laps ~11.6 s vs the heuristic's 23.4 s) — and then PPO
+# destabilizes under the large return scale and collapses back to
+# the crash attractor. The run's product is therefore the
+# best-by-eval checkpoint, which is exactly the framework's
+# checkpoint-selection design; eval_freq is set dense (25k) so the
+# peak window is caught finely.
+game: racing
+algorithm: ppo
+total_timesteps: 600000
+seed: 0
+n_envs: 8
+learning_rate: 0.0003
+gamma: 0.995
+eval_episodes: 10
+eval_freq: 25000
+output_dir: runs
+env_kwargs:
+  track_seed: 7
+policy_kwargs:
+  net_arch: [256, 256]
+hyperparams:
+  n_steps: 256
+  batch_size: 1024
+  n_epochs: 4
+  ent_coef: 0.005
+  gae_lambda: 0.98

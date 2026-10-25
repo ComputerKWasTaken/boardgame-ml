@@ -5,6 +5,7 @@ import type {
   FlappyRender,
   HolRender,
   Match3Render,
+  RacingRender,
   RenderState,
 } from "../types";
 
@@ -217,6 +218,83 @@ export function FlappyBoard({ render }: { render: FlappyRender }) {
   );
 }
 
+export function RacingBoard({ render }: { render: RacingRender }) {
+  const { track, car } = render;
+  // Bounds from the track geometry (world coords, y up). The whole
+  // scene is drawn in world coordinates inside one flipped group,
+  // like Flappy's board: SVG's y-down becomes the world's y-up.
+  const all = [...track.left_edge, ...track.right_edge];
+  const xs = all.map((p) => p[0]);
+  const ys = all.map((p) => p[1]);
+  const pad = 6;
+  const minX = Math.min(...xs) - pad;
+  const maxX = Math.max(...xs) + pad;
+  const minY = Math.min(...ys) - pad;
+  const maxY = Math.max(...ys) + pad;
+  const ribbon =
+    track.left_edge.map((p) => p.join(",")).join(" ") +
+    " " +
+    [...track.right_edge].reverse().map((p) => p.join(",")).join(" ");
+  const centre = track.centerline.map((p) => p.join(",")).join(" ");
+  const headingDeg = (car.heading * 180) / Math.PI;
+  const kmh = Math.round(car.speed * 3.6);
+  const lapTime = (v: number | null) => (v === null ? "—" : `${v.toFixed(1)}s`);
+  return (
+    <div className="board racing-board">
+      <div className="match3-header">
+        <div>
+          Lap <strong>{render.laps + 1}</strong>
+        </div>
+        <div>
+          Progress <strong>{Math.round(render.progress_fraction * 100)}%</strong>
+        </div>
+        <div>
+          Speed <strong>{kmh} km/h</strong>
+        </div>
+        <div>
+          Best lap <strong>{lapTime(render.best_lap_time)}</strong>
+        </div>
+        {render.off_track && <div className="badge">off track</div>}
+      </div>
+      <svg
+        className="racing-svg"
+        viewBox={`${minX} ${minY} ${maxX - minX} ${maxY - minY}`}
+        role="img"
+        aria-label="Racing track, top-down"
+      >
+        <g transform={`translate(0 ${minY + maxY}) scale(1 -1)`}>
+          <polygon points={ribbon} className="racing-track" />
+          <polyline points={centre} className="racing-center" />
+          {render.rays.map((dist, i) => {
+            const a = car.heading + render.ray_angles[i];
+            return (
+              <line
+                key={i}
+                x1={car.x}
+                y1={car.y}
+                x2={car.x + Math.cos(a) * dist}
+                y2={car.y + Math.sin(a) * dist}
+                className="racing-ray"
+              />
+            );
+          })}
+          <g transform={`translate(${car.x} ${car.y}) rotate(${headingDeg})`}>
+            <rect x={-2.7} y={-1.15} width={5.4} height={2.3} rx={0.7} className="racing-car" />
+            <rect x={0.4} y={-0.85} width={1.5} height={1.7} rx={0.4} className="racing-car-glass" />
+            <line
+              x1={0.2}
+              y1={0}
+              x2={0.2 + Math.cos(car.steer * 0.55) * 2.3}
+              y2={Math.sin(car.steer * 0.55) * 2.3}
+              className="racing-steer-line"
+            />
+          </g>
+        </g>
+      </svg>
+    </div>
+  );
+}
+
 export default function Board({ render }: { render: RenderState }) {
   if (render.game === "blackjack") {
     return <BlackjackBoard render={render as BlackjackRender} />;
@@ -229,6 +307,9 @@ export default function Board({ render }: { render: RenderState }) {
   }
   if (render.game === "flappy") {
     return <FlappyBoard render={render as FlappyRender} />;
+  }
+  if (render.game === "racing") {
+    return <RacingBoard render={render as RacingRender} />;
   }
   return (
     <div className="board">

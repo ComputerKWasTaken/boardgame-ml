@@ -23,6 +23,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import gymnasium as gym
 from sb3_contrib import MaskablePPO
 
 from boardgame_ml.agents.baselines import BaselineAgent, BasicStrategyAgent, get_baseline
@@ -118,11 +119,15 @@ def resolve_agent(
         raise
 
 
-def predict_action(agent, env, obs) -> int:
+def predict_action(agent, env, obs):
     """Greedy action from a baseline or SB3 model in ``env``'s state.
 
     For MaskablePPO the current action mask is passed explicitly, so
     the evaluated policy is exactly the masked policy that was trained.
+    Returns an ``int`` for ``Discrete`` games and the full action
+    vector (``np.ndarray`` shaped like the action space) for ``Box``
+    games — collapsing a continuous action to its first component
+    would silently evaluate a different, broken policy.
     """
     raw = env.unwrapped
     if isinstance(agent, BaselineAgent):
@@ -130,9 +135,11 @@ def predict_action(agent, env, obs) -> int:
     if isinstance(agent, MaskablePPO):
         mask = validate_mask(raw.action_masks(), raw.action_space.n)
         action, _ = agent.predict(obs, deterministic=True, action_masks=mask)
-    else:
-        action, _ = agent.predict(obs, deterministic=True)
-    return int(np.asarray(action).reshape(-1)[0])
+        return int(np.asarray(action).reshape(-1)[0])
+    action, _ = agent.predict(obs, deterministic=True)
+    if isinstance(raw.action_space, gym.spaces.Discrete):
+        return int(np.asarray(action).reshape(-1)[0])
+    return np.asarray(action, dtype=np.float32).reshape(raw.action_space.shape)
 
 
 def evaluate(

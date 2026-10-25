@@ -23,13 +23,14 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+import gymnasium as gym
 from sb3_contrib import MaskablePPO
-from stable_baselines3 import DQN, PPO
+from stable_baselines3 import DQN, PPO, SAC
 
 from boardgame_ml.envs import make_env
 from boardgame_ml.envs.base import validate_mask
 
-MODEL_CLASSES = {"maskable_ppo": MaskablePPO, "ppo": PPO, "dqn": DQN}
+MODEL_CLASSES = {"maskable_ppo": MaskablePPO, "ppo": PPO, "dqn": DQN, "sac": SAC}
 
 #: Algorithms whose learning update consumes action masks. Everything
 #: else in the registry is mask-blind and must pass the guard below.
@@ -48,8 +49,15 @@ def game_uses_masks(
     Plays ``steps`` seeded steps choosing uniformly among *legal*
     actions (resetting as episodes end) and reports whether any
     collected ``action_masks()`` was not all-True.
+
+    Continuous-action (``Box``) games cannot mask at all — there is no
+    finite action set to exclude from — so the probe short-circuits
+    to ``False`` and the guard passes every registered algorithm for
+    them (the all-True route, generalized).
     """
     env = make_env(game, **(env_kwargs or {}))
+    if not isinstance(env.action_space, gym.spaces.Discrete):
+        return False
     rng = np.random.default_rng(seed)
     env.reset(seed=seed)
     ep_seed = seed

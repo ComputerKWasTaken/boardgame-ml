@@ -74,14 +74,28 @@ def library_versions() -> dict[str, str]:
     }
 
 
+def _maybe_mask(env: gym.Env) -> gym.Env:
+    """Wrap in ``ActionMasker`` iff the game has masks to deliver.
+
+    Action masks exist only for ``Discrete`` action spaces. A ``Box``
+    game (continuous control) has no mask — every point of the box is
+    legal — so the wrapper (whose ``mask_fn`` reads ``action_space.n``)
+    must not be applied to it. This is the one place the trainer's
+    wiring branches on the action-space kind.
+    """
+    if isinstance(env.action_space, gym.spaces.Discrete):
+        return ActionMasker(env, mask_fn)
+    return env
+
+
 def build_single_env(
     game: str, *, monitor: bool = True, env_kwargs: dict | None = None
 ) -> gym.Env:
-    """One masked env (used for evaluation / final checks)."""
+    """One env (used for evaluation / final checks); masked if Discrete."""
     env = make_env(game, **(env_kwargs or {}))
     if monitor:
         env = Monitor(env)
-    return ActionMasker(env, mask_fn)
+    return _maybe_mask(env)
 
 
 def build_vec_env(
@@ -90,8 +104,7 @@ def build_vec_env(
     def make(rank: int):
         def _init() -> gym.Env:
             env = Monitor(make_env(game, **(env_kwargs or {})))
-            env = ActionMasker(env, mask_fn)
-            return env
+            return _maybe_mask(env)
 
         return _init
 

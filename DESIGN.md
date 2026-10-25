@@ -44,8 +44,10 @@ A game is a `BaseGameEnv` (a `gymnasium.Env`):
 
 * `observation_space` — any Gymnasium space; M1 games use small
   normalized `Box` vectors.
-* `action_space` — `Discrete(n)`. Larger action spaces are fine as
-  long as legality is expressible as a mask.
+* `action_space` — `Discrete(n)` for turn-based games (larger action
+  spaces are fine as long as legality is expressible as a mask), or
+  `Box` for continuous-control games (M5's racing), where legality
+  is the box itself and the mask machinery does not apply.
 * `action_masks() -> np.ndarray[bool]` of shape `(n,)` — which actions
   are legal **now**, following the sb3-contrib convention. The trainer
   wraps envs in `ActionMasker`, so MaskablePPO's policy is masked at
@@ -308,14 +310,132 @@ Flappy's "distance to next pipe + gap edges". Reward stays intrinsic
 (checkpoints/lap progress, the genre's own score), crashes
 terminate, the lap timer truncates.
 
+## Racing (M5) — continuous actions
+
+Racing (`envs/racing.py`) is the framework's first game with a
+`Box` action space — steering and throttle, both in [−1, 1] — and
+it landed the way M4 predicted: through the public seams (env
+module, registry line, baselines, YAML, render builder, frontend
+board), plus **one seam fix the game genuinely required**: the mask
+machinery assumed `Discrete` everywhere (`BaseGameEnv._info()`
+asserted it, the trainer wrapped every env in `ActionMasker`, the
+guard probe called `action_masks()`, the evaluator collapsed
+actions to `int`). The fix states the rule the M4 section
+anticipated — *mask machinery applies only to Discrete spaces; a
+Box game is unmaskable and the guard passes any registered
+algorithm for it* — implemented at those four boundaries and
+regression-tested (a Box env must train a smoke run with a
+mask-blind algorithm; `predict_action` must return the full action
+vector). SAC joined the algorithm registry the same way, as the
+sample-efficient continuous-control alternative; it is smoke-tested
+through the full pipeline but PPO is the primary (below).
+
+**The track.** A closed loop from a seeded generator: 12 control
+points on a jittered circle, Laplacian-smoothed, closed Catmull-Rom
+centerline at 192 points, constant 6 m half-width, 301 m around for
+the canonical `track_seed` 7. The smoothing is a measured fix, not
+decoration: raw jitter + spline overshoot produced a ~7 m minimum
+turn radius — a hairpin narrower than the track is wide — while
+three smoothing passes raise it to ~28 m and keep the loop visibly
+organic. The track is *fixed* (one canonical seed in the YAML);
+episode seeds randomize only the **spawn point** on it, which
+diversifies episodes for deterministic policies (otherwise every
+eval episode replays one identical trajectory), lets training
+practice every corner from step 0, and makes "a lap" mean a full
+circuit from wherever the car started.
+
+**Physics: the one realism that matters.** Arcade bicycle model —
+velocity aligned to heading, yaw `= speed / wheelbase · tan(δ)` —
+with one piece of real physics kept: a **grip cap** on lateral
+acceleration (`|speed · ω| ≤ 14 m/s²`). The cap is there because the
+ungripped prototype was measured, and it was degenerate: with
+velocity-aligned physics and no grip limit, cornering costs
+nothing, full throttle is optimal everywhere, and a barely-trained
+policy was lapping at the 32 m/s speed clamp within 30k steps
+(best lap 9.4 s, the physical ceiling). With grip, corner speed is
+bounded by `sqrt(grip · radius)` — ≈20 m/s on the tightest corners
+vs 32 m/s on straights — and braking becomes a real skill for the
+reward to teach.
+
+**Observation and reward.** The obs is Flappy's doctrine extended:
+an 11-ray fan over ±90° (distances to the track edges, the spatial
+lookahead), speed, sin/cos of heading vs the centerline tangent,
+lateral offset, current steering — derivatives and geometry, no
+pixels, no frame stack. The reward is progress itself: arc length
+along the centerline through an **ordered-checkpoint scheme** — 24
+checkpoints, a monotonic counter, credited progress paid once as a
+high-water mark, so reversing earns exactly 0 and re-covered ground
+pays nothing (both pinned by tests, along with the windowed
+nearest-point search that stops corner-cutting from teleporting
+the car's track position). A lap pays +100; leaving the track
+terminates; the 1,800-step (90 s) cap truncates.
+
+**Baselines.** Random is now a uniform sample of the box — it
+barely leaves the spawn (3% of a lap per episode; the bicycle model
+means steering without speed does nothing, and mean-zero throttle
+keeps speed near zero). The heuristic is an obs-only raycast
+wall-follower (steer toward the distance-weighted centroid of the
+fan, correct toward the centerline, speed set by forward-ray
+openness): a metronome that laps in ~23.5 s, crash-free. An eager
+first tuning lapped in ~16 s; it was deliberately detuned — a
+yardstick should be a reference, not a rival.
+
+**Training dynamics — the honest part.** Two findings, both
+measured on eval curves, neither hidden:
+
+* *Gamma is the braking horizon.* At γ = 0.99 / gae_lambda 0.95,
+  PPO converged to full-throttle-and-crash and stayed there (eval
+  ~140 through 150k steps; trace shows throttle ≈ +1.0 always,
+  never braking, dying at ~30 m/s on corner entry): the payoff for
+  braking lands ~1–4 s after the decision, outside the effective
+  horizon the advantages can see. At γ = 0.995 / 0.98 the same
+  setup learns to lap within 50–100k steps.
+* *Then it falls apart.* In every high-γ run the eval curve peaks
+  (2835–2971) and then degrades — gradually in one run (2835 →
+  1890 → 1084 → 215), off a cliff within one 50k eval window in
+  others — settling back into the ~150-return crash attractor for
+  the remaining ~450k steps. A stabilizer variant (lr 1e-4,
+  full-batch 2048, target_kl 0.04) collapsed *earlier*, not later;
+  the mechanism is not pinned down (return-scale value chase is
+  the leading suspect) and is recorded here as an open weakness,
+  not explained away. What makes the run's product trustworthy
+  anyway is the framework's oldest design rule: **checkpoints are
+  selected by deterministic eval, never by training windows** —
+  the shipped model is the 75k-step peak (eval 2971.4), caught
+  finely because `eval_freq` is set dense (25k) for this config.
+  The final-model artifact, by contrast, is the collapsed policy;
+  anyone reproducing this run should read `best_model.zip`, and
+  the gap between the two is the current price of PPO at this
+  reward scale. SAC — off-policy, replay-buffered, without this
+  failure mode in principle — is registered and smoke-tested for
+  exactly this reason; it is the documented next experiment, not
+  a footnote.
+
+**Measured** (independent eval, 100 episodes, seeds 2,000,000+;
+README's M5 table): the trained policy completes a lap in **100%**
+of episodes (7.0 laps per episode, zero crashes in 700 laps),
+lapping in **11.95 s** on average against the heuristic's 23.54 s
+and random's no-lap-at-all. Training: 600k steps in 475 s of wall
+clock (~1,260 steps/s including evals; the bare env steps at
+~7,750/s).
+
+**Cockpit.** Render state ships the track polylines, car pose,
+and the ray fan; the frontend draws a top-down SVG scene (track
+ribbon, dashed centerline, ray lines, a car with a steering tick)
+plus lap/progress/speed header stats, and Train presets for racing
+were added. One transparency note: the Games card's baseline
+reference for racing is measured over 100 episodes instead of
+1,000 — racing episodes run up to 1,800 steps of simulation
+(vs ~10–400 elsewhere), and the count ships in the payload.
+
 ## Roadmap beyond M1
 
 * More games behind the same contract (the real test of modularity)
   — Match 3 landed in M3 (see above); Flappy Bird landed in M4 as
-  the first continuous-dynamics game (see "Continuous games"); a
-  multi-player game via a PettingZoo-style wrapper and a
-  continuous-*action* game (racing: `Box` actions, PPO/SAC) are the
-  remaining frontiers.
+  the first continuous-dynamics game (see "Continuous games");
+  racing landed in M5 as the first continuous-*action* game (see
+  "Racing"); a multi-player game via a PettingZoo-style wrapper is
+  the remaining frontier.
 * ~~Graphical watch viewer~~ — **done**: the web cockpit
   (`src/boardgame_ml/web/` + `web/`) serves a local React UI from
   the same process as its FastAPI backend. It consumes the framework

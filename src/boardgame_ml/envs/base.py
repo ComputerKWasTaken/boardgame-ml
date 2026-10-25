@@ -2,7 +2,9 @@
 
 The contract (see DESIGN.md, "Adding a new game"):
 
-* A game is a :class:`gymnasium.Env` with a ``Discrete`` action space.
+* A game is a :class:`gymnasium.Env`. Turn-based games use a
+  ``Discrete`` action space; continuous-control games (M5's racing)
+  use a ``Box`` — the contract's other rules are space-agnostic.
 * ``reset(seed=...)`` must be seedable and reproducible.
 * ``action_masks()`` returns a boolean array of shape ``(n_actions,)``
   marking which actions are legal *right now*. This is the sb3-contrib
@@ -10,7 +12,10 @@ The contract (see DESIGN.md, "Adding a new game"):
   The mask is part of the environment's public API — it is never dropped,
   recomputed differently, or silently ignored between action selection
   and learning updates (that mismatch is what invalidated the legacy
-  project's PPO objective).
+  project's PPO objective). Masks exist only for ``Discrete`` spaces:
+  for a ``Box`` game the mask machinery simply does not apply (every
+  point of the box is a legal action by construction), and the mask
+  guard passes any registered algorithm for such a game.
 * ``render()`` returns a human-readable string when
   ``render_mode="human"``.
 """
@@ -57,7 +62,8 @@ def validate_mask(mask, n_actions: int) -> np.ndarray:
 class BaseGameEnv(gym.Env):
     """Base class all games inherit from. Subclasses must implement
     ``reset`` and ``step`` and set ``observation_space`` / ``action_space``
-    (a ``gym.spaces.Discrete``) in ``__init__``.
+    in ``__init__`` — a ``gym.spaces.Discrete`` for turn-based games,
+    a ``gym.spaces.Box`` for continuous-control games.
     """
 
     metadata = {"render_modes": ["human"], "render_fps": 4}
@@ -69,26 +75,44 @@ class BaseGameEnv(gym.Env):
         self.render_mode = render_mode
 
     # -- masking ---------------------------------------------------------
+    def _require_discrete(self, what: str) -> None:
+        if not isinstance(self.action_space, gym.spaces.Discrete):
+            raise TypeError(
+                f"{what} is only defined for Discrete action spaces; this "
+                f"game's action space is {self.action_space!r}. Continuous-"
+                f"action games have no action masks — every point of the "
+                f"box is legal by construction."
+            )
+
     def action_masks(self) -> np.ndarray:
         """Boolean mask of legal actions in the current state.
 
         Default: every action is legal. Games with state-dependent legality
         override this. Must always return shape ``(action_space.n,)`` and
-        dtype ``bool``.
+        dtype ``bool``. Only defined for ``Discrete`` action spaces.
         """
-        assert isinstance(self.action_space, gym.spaces.Discrete)
+        self._require_discrete("action_masks()")
         return np.ones(self.action_space.n, dtype=bool)
 
     def valid_actions(self) -> list[int]:
         """Indices of currently legal actions (convenience for agents)."""
-        assert isinstance(self.action_space, gym.spaces.Discrete)
+        self._require_discrete("valid_actions()")
         mask = validate_mask(self.action_masks(), self.action_space.n)
         return [int(a) for a in np.flatnonzero(mask)]
 
     def _info(self, **extra) -> dict:
-        """Standard info dict; always carries the current (validated) mask."""
-        assert isinstance(self.action_space, gym.spaces.Discrete)
-        info = {"action_mask": validate_mask(self.action_masks(), self.action_space.n)}
+        """Standard info dict.
+
+        For ``Discrete`` games it always carries the current (validated)
+        mask; for ``Box`` games there is no mask to carry and the key is
+        absent — consumers must not assume its presence for
+        continuous-action games.
+        """
+        info: dict = {}
+        if isinstance(self.action_space, gym.spaces.Discrete):
+            info["action_mask"] = validate_mask(
+                self.action_masks(), self.action_space.n
+            )
         info.update(extra)
         return info
 

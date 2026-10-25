@@ -7,6 +7,7 @@ import type {
   FlappyRender,
   HolRender,
   Match3Render,
+  RacingRender,
   Replay,
   RunEntry,
   GameInfo,
@@ -42,6 +43,10 @@ function feedLine(ev: WatchEvent): string {
   if (ev.game === "flappy" && ev.render) {
     const r = ev.render as FlappyRender;
     return `${head} (${fmt(ev.reward ?? 0)}) — score ${r.score} · bird at y ${Math.round(r.bird_y)}`;
+  }
+  if (ev.game === "racing" && ev.render) {
+    const r = ev.render as RacingRender;
+    return `${head} (${fmt(ev.reward ?? 0)}) — lap ${r.laps + 1} · ${Math.round(r.progress_fraction * 100)}% · ${Math.round(r.speed * 3.6)} km/h`;
   }
   return `${head} (${fmt(ev.reward ?? 0)})`;
 }

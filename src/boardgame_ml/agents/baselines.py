@@ -2,41 +2,51 @@
 
 Baselines are the framework's proof-of-learning yardsticks: a trained
 agent only counts as having learned if it beats :class:`RandomAgent`
-and approaches the relevant heuristic agent. Every baseline only ever
-chooses actions that are legal under ``env.action_masks()``.
+and approaches the relevant heuristic agent. Discrete-game baselines
+only ever choose actions that are legal under ``env.action_masks()``;
+for continuous (``Box``) games every point of the box is legal and
+"random" means a uniform sample of it.
 """
 
 from __future__ import annotations
 
 import numpy as np
+import gymnasium as gym
 
 from boardgame_ml.envs.base import BaseGameEnv
 from boardgame_ml.envs import blackjack as bj
 from boardgame_ml.envs import flappy as fb
 from boardgame_ml.envs import higher_or_lower as hol
 from boardgame_ml.envs import match3 as m3
+from boardgame_ml.envs import racing as rc
 
 
 class BaselineAgent:
-    """Common interface: ``select_action(env, obs) -> int``."""
+    """Common interface: ``select_action(env, obs)`` — an ``int`` for
+    Discrete games, an action vector for Box games."""
 
     name = "baseline"
     games: tuple[str, ...] = ()
 
-    def select_action(self, env: BaseGameEnv, obs: np.ndarray) -> int:
+    def select_action(self, env: BaseGameEnv, obs: np.ndarray):
         raise NotImplementedError
 
 
 class RandomAgent(BaselineAgent):
-    """Uniform random over currently legal actions."""
+    """Uniform random: over currently legal actions (Discrete), or a
+    uniform sample of the action box (continuous games)."""
 
     name = "random"
-    games = ("blackjack", "higher_or_lower", "match3", "flappy")
+    games = ("blackjack", "higher_or_lower", "match3", "flappy", "racing")
 
     def __init__(self, seed: int | None = None) -> None:
         self._rng = np.random.default_rng(seed)
 
-    def select_action(self, env: BaseGameEnv, obs: np.ndarray) -> int:
+    def select_action(self, env: BaseGameEnv, obs: np.ndarray):
+        if isinstance(env.action_space, gym.spaces.Box):
+            return self._rng.uniform(
+                env.action_space.low, env.action_space.high
+            ).astype(np.float32)
         return int(self._rng.choice(env.valid_actions()))
 
 
@@ -185,6 +195,85 @@ class FlappyHeuristicAgent(BaselineAgent):
         return fb.GLIDE
 
 
+class RacingHeuristicAgent(BaselineAgent):
+    """Raycast wall-follower for Racing — the learnability yardstick.
+
+    **Observation only**: this agent reads the same ray fan, speed,
+    and lateral offset the learned policy sees (plus the env's
+    physical *parameters* — max speed, max steering angle, ray fan
+    geometry — for denormalization; parameters are not state, and it
+    never touches the centerline, the car's position, or any other
+    privileged track data).
+
+    The rule, in full:
+
+    * **Steer toward open space.** The desired heading offset is the
+      distance-squared-weighted centroid of the ray fan (long rays
+      dominate, so the car aims where the track opens up), corrected
+      toward the centerline proportional to the lateral offset. The
+      steering input is that desired offset expressed as a fraction
+      of the maximum steering angle, times a gain.
+    * **Speed follows the forward view.** The target speed scales
+      with the openness of the forward rays (mean of the three
+      centre rays) and shrinks when the desired turn is sharp; the
+      throttle is a proportional controller on (target − actual)
+      speed, so overspeed produces braking on its own.
+
+    It is a reactive controller with no memory and no lookahead
+    beyond the ray range: it circulates, slowly and wide, and its
+    lap times are the bar a learned policy should clear by a wide
+    margin. Constants were tuned lightly by hand (an eager first
+    tuning lapped in ~16 s, which made the yardstick a rival rather
+    than a reference; the frozen constants lap in ~23 s — steady,
+    crash-free, and clearly beatable on speed), then frozen.
+    """
+
+    name = "racing_heuristic"
+    games = ("racing",)
+
+    STEER_GAIN = 1.15
+    CENTER_GAIN = 0.45  # rad of heading bias per unit normalized offset
+    FRONT_SLOW = 0.12  # forward-ray openness where target speed bottoms out
+    FRONT_FAST = 0.85  # ...and where it saturates
+    MIN_SPEED_FRAC = 0.16
+    TURN_SLOWDOWN = 0.55
+    SPEED_TOLERANCE = 8.0  # m/s of speed error per unit throttle
+
+    def select_action(self, env: BaseGameEnv, obs: np.ndarray) -> np.ndarray:
+        assert isinstance(env, rc.RacingEnv)
+        n = env.n_rays
+        rays = obs[:n].astype(np.float64)
+        speed = float(obs[n]) * env.max_speed
+        offset = float(obs[n + 3])  # lateral offset / half-width
+
+        weights = rays**2
+        desired = float(
+            (weights * env.ray_angles).sum() / max(float(weights.sum()), 1e-9)
+        )
+        desired -= self.CENTER_GAIN * offset
+        steer = float(
+            np.clip(
+                self.STEER_GAIN * desired / env.max_steer, -1.0, 1.0
+            )
+        )
+
+        centre = np.abs(env.ray_angles) <= np.radians(20.0)
+        front = float(rays[centre].mean())
+        frac = np.clip(
+            (front - self.FRONT_SLOW) / (self.FRONT_FAST - self.FRONT_SLOW),
+            self.MIN_SPEED_FRAC,
+            1.0,
+        )
+        frac *= 1.0 - self.TURN_SLOWDOWN * min(
+            1.0, abs(desired) / (env.ray_fov / 2)
+        )
+        target_speed = frac * env.max_speed
+        throttle = float(
+            np.clip((target_speed - speed) / self.SPEED_TOLERANCE, -1.0, 1.0)
+        )
+        return np.array([steer, throttle], dtype=np.float32)
+
+
 BASELINES: dict[str, type[BaselineAgent]] = {
     cls.name: cls
     for cls in (
@@ -193,6 +282,7 @@ BASELINES: dict[str, type[BaselineAgent]] = {
         ProbabilityAgent,
         GreedyMatch3Agent,
         FlappyHeuristicAgent,
+        RacingHeuristicAgent,
     )
 }
 

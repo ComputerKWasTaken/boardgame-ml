@@ -691,3 +691,49 @@ th {
   stroke: #8a6410;
   stroke-width: 2;
 }
+
+/* Racing scene (SVG top-down, world coords flipped by the component). */
+.racing-svg {
+  width: 100%;
+  max-width: 560px;
+  display: block;
+  background: #12260f;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.racing-track {
+  fill: #3a3f44;
+  stroke: #d8dce0;
+  stroke-width: 0.7;
+}
+
+.racing-center {
+  fill: none;
+  stroke: #f2b632;
+  stroke-width: 0.45;
+  stroke-dasharray: 2.4 1.8;
+  opacity: 0.55;
+}
+
+.racing-ray {
+  stroke: #58a6ff;
+  stroke-width: 0.35;
+  opacity: 0.4;
+}
+
+.racing-car {
+  fill: #e5534b;
+  stroke: #7a1710;
+  stroke-width: 0.35;
+}
+
+.racing-car-glass {
+  fill: #a8d4f0;
+  opacity: 0.9;
+}
+
+.racing-steer-line {
+  stroke: #ffffff;
+  stroke-width: 0.4;
+}

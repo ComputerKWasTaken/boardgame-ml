@@ -90,11 +90,52 @@ def _flappy(env, info: dict, reveal: bool) -> dict:
     }
 
 
+def _racing(env, info: dict, reveal: bool) -> dict:
+    # World coordinates (metres, y up); the frontend's SVG flips the
+    # axis when drawing, like Flappy's. The track polylines ride
+    # along on every event — one canonical track, ~200 points a side,
+    # and the replay log stays self-contained this way.
+    track = env.track
+
+    def pts(arr) -> list[list[float]]:
+        return [[float(x), float(y)] for x, y in arr]
+
+    return {
+        "car": {
+            "x": env.car_x,
+            "y": env.car_y,
+            "heading": env.heading,
+            "speed": env.speed,
+            "steer": env.steer,
+        },
+        "track": {
+            "centerline": pts(track.centerline),
+            "left_edge": pts(track.left_edge),
+            "right_edge": pts(track.right_edge),
+            "total_length": track.total_length,
+        },
+        "rays": [float(v) for v in env.last_rays],
+        "ray_angles": [float(a) for a in env.ray_angles],
+        "ray_max_range": env.ray_max_range,
+        "progress_fraction": info.get("progress_fraction", 0.0),
+        "progress_m": info.get("progress_m", env.progress_m),
+        "laps": info.get("laps", env.laps),
+        "current_lap_time": info.get("current_lap_time"),
+        "last_lap_time": info.get("last_lap_time"),
+        "best_lap_time": info.get("best_lap_time"),
+        "speed": env.speed,
+        "offset": info.get("offset", env.offset),
+        "off_track": bool(info.get("off_track", False)),
+        "steps": env.steps,
+    }
+
+
 _BUILDERS = {
     "blackjack": _blackjack,
     "higher_or_lower": _higher_or_lower,
     "match3": _match3,
     "flappy": _flappy,
+    "racing": _racing,
 }
 
 

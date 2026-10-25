@@ -146,11 +146,37 @@ export interface FlappyRender {
   height: number;
 }
 
+export interface RacingRender {
+  game: "racing";
+  text?: string;
+  car: { x: number; y: number; heading: number; speed: number; steer: number };
+  track: {
+    centerline: [number, number][];
+    left_edge: [number, number][];
+    right_edge: [number, number][];
+    total_length: number;
+  };
+  rays: number[];
+  ray_angles: number[];
+  ray_max_range: number;
+  progress_fraction: number;
+  progress_m: number;
+  laps: number;
+  current_lap_time: number | null;
+  last_lap_time: number | null;
+  best_lap_time: number | null;
+  speed: number;
+  offset: number;
+  off_track: boolean;
+  steps: number;
+}
+
 export type RenderState =
   | BlackjackRender
   | HolRender
   | Match3Render
   | FlappyRender
+  | RacingRender
   | { game: string; text?: string };
 
 export interface SessionStats {
@@ -169,7 +195,7 @@ export interface WatchEvent {
   agent?: string;
   episode: number;
   step_in_episode?: number;
-  action?: number;
+  action?: number | number[];
   action_name?: string;
   reward?: number;
   episode_return: number;

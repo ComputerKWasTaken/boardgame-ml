@@ -73,7 +73,13 @@ def client(fixture_runs):
 def test_games_endpoint(client):
     games = client.get("/api/games").json()
     by_name = {g["name"]: g for g in games}
-    assert set(by_name) == {"blackjack", "higher_or_lower", "match3", "flappy"}
+    assert set(by_name) == {
+        "blackjack",
+        "higher_or_lower",
+        "match3",
+        "flappy",
+        "racing",
+    }
     bj = by_name["blackjack"]
     assert [a["name"] for a in bj["actions"]] == ["STAND", "HIT"]
     baseline_names = {b["name"] for b in bj["baselines"]}
@@ -94,6 +100,25 @@ def test_games_endpoint(client):
     # NOT stronger than random over full episodes in this game (its
     # bigger clears break up the near-matches that feed cascades).
     # See DESIGN.md's Match 3 section.
+
+    rc = by_name["racing"]
+    assert rc["display_name"] == "Racing"
+    # Continuous actions have no per-action names to enumerate.
+    assert rc["actions"] == []
+    assert {b["name"] for b in rc["baselines"]} == {
+        "random",
+        "racing_heuristic",
+    }
+    for b in rc["baselines"]:
+        # Racing episodes are up to 1,800 steps of simulation, so the
+        # card's reference sample is 100 episodes (see web/app.py).
+        assert b["episodes"] == 100
+    by_baseline = {b["name"]: b for b in rc["baselines"]}
+    # The wall-follower laps the track; random barely leaves the spawn.
+    assert (
+        by_baseline["racing_heuristic"]["mean_return"]
+        > by_baseline["random"]["mean_return"] + 500.0
+    )
 
 
 def test_runs_endpoints(client):
@@ -234,6 +259,35 @@ def test_watch_session_streams_full_episode(client):
     stats = end_event["session_stats"]
     assert stats["episodes_completed"] == 1
     assert stats["wins"] + stats["losses"] + stats["pushes"] == 1
+
+
+def test_watch_racing_session_streams_continuous_actions(client):
+    resp = client.post(
+        "/api/watch",
+        json={"game": "racing", "agent": "racing_heuristic", "seed": 3},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    initial = body["initial"]
+    assert initial["type"] == "state"
+    render = initial["render"]
+    assert render["game"] == "racing"
+    assert len(render["track"]["centerline"]) > 100
+    assert len(render["rays"]) == 11
+    assert render["car"]["speed"] == 0.0
+
+    session_id = body["session_id"]
+    with client.websocket_connect(f"/api/watch/{session_id}") as ws:
+        for _ in range(5):
+            ws.send_json({"cmd": "step"})
+            event = ws.receive_json()
+            assert event["type"] == "step"
+            # Continuous actions stream as [steer, throttle] vectors
+            # with a readable label, not collapsed ints.
+            assert isinstance(event["action"], list)
+            assert len(event["action"]) == 2
+            assert "steer" in event["action_name"]
+            assert event["render"]["game"] == "racing"
 
 
 def test_watch_validation(client):

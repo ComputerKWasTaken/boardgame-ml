@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+import gymnasium as gym
 from gymnasium.utils.env_checker import check_env
 
 from boardgame_ml.envs import GAMES as _GAME_REGISTRY
@@ -10,6 +11,17 @@ from boardgame_ml.envs import make_env
 # Parameterized from the registry itself: a game added to GAMES gets
 # compliance tests automatically, with no second list to remember.
 GAMES = sorted(_GAME_REGISTRY)
+
+
+def _is_discrete(env) -> bool:
+    return isinstance(env.action_space, gym.spaces.Discrete)
+
+
+def _a_step_action(env):
+    """One fixed, always-legal action for stepping in generic tests."""
+    if _is_discrete(env):
+        return env.valid_actions()[0]
+    return np.zeros(env.action_space.shape, dtype=np.float32)
 
 
 @pytest.mark.parametrize("game", GAMES)
@@ -22,6 +34,12 @@ def test_check_env(game):
 def test_action_mask_shape_and_dtype(game):
     env = make_env(game)
     env.reset(seed=0)
+    if not _is_discrete(env):
+        # Continuous-action games have no mask machinery at all:
+        # asking for one is a named error, and info carries no mask.
+        with pytest.raises(TypeError):
+            env.action_masks()
+        return
     mask = env.action_masks()
     assert mask.shape == (env.action_space.n,)
     assert mask.dtype == bool
@@ -40,10 +58,16 @@ def test_action_mask_shape_and_dtype(game):
 def test_mask_consistent_after_steps(game):
     env = make_env(game)
     obs, info = env.reset(seed=1)
-    assert "action_mask" in info
+    if _is_discrete(env):
+        assert "action_mask" in info
+    else:
+        assert "action_mask" not in info
     for _ in range(5):
-        obs, reward, terminated, truncated, info = env.step(env.valid_actions()[0])
-        np.testing.assert_array_equal(info["action_mask"], env.action_masks())
+        obs, reward, terminated, truncated, info = env.step(_a_step_action(env))
+        if _is_discrete(env):
+            np.testing.assert_array_equal(info["action_mask"], env.action_masks())
+        else:
+            assert "action_mask" not in info
         if terminated or truncated:
             break
 
@@ -65,7 +89,7 @@ def test_seeded_reset_is_reproducible(game):
     obs_b, _ = env_b.reset(seed=42)
     _assert_obs_equal(obs_a, obs_b)
     for _ in range(3):
-        action = env_a.valid_actions()[0]
+        action = _a_step_action(env_a)
         step_a = env_a.step(action)
         step_b = env_b.step(action)
         _assert_obs_equal(step_a[0], step_b[0])

@@ -82,3 +82,43 @@ def test_train_match3_with_masked_eval(tmp_path):
     summary_file = json.loads((run_dir / "summary.json").read_text())
     assert summary_file["best_eval_mean_return"] is not None
     assert summary_file["best_eval_mean_return"] > 0
+
+
+def test_train_racing_ppo_smoke(tmp_path):
+    """A Box-action game trains through the standard pipeline: no
+    ActionMasker (there are no masks), standard EvalCallback,
+    best-by-eval artifacts on disk."""
+    cfg = ExperimentConfig(
+        game="racing",
+        algorithm="ppo",
+        total_timesteps=256,
+        n_envs=2,
+        eval_freq=128,
+        eval_episodes=3,
+        seed=3,
+        output_dir=str(tmp_path),
+    )
+    summary = train(cfg)
+    run_dir = Path(summary["run_dir"])
+    assert Path(summary["best_model"]).exists()
+    summary_file = json.loads((run_dir / "summary.json").read_text())
+    assert summary_file["best_eval_mean_return"] is not None
+
+
+def test_train_racing_sac_smoke(tmp_path):
+    """SAC — registered in M5 as the sample-efficient continuous-
+    control alternative — constructs and trains on the Box game
+    through the same pipeline (a few hundred steps only: this pins
+    the wiring, not SAC's driving)."""
+    cfg = ExperimentConfig(
+        game="racing",
+        algorithm="sac",
+        total_timesteps=300,
+        n_envs=1,
+        eval_freq=150,
+        eval_episodes=3,
+        seed=3,
+        output_dir=str(tmp_path),
+    )
+    summary = train(cfg)
+    assert Path(summary["best_model"]).exists()

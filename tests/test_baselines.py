@@ -8,6 +8,7 @@ from boardgame_ml.agents.baselines import (
     FlappyHeuristicAgent,
     GreedyMatch3Agent,
     ProbabilityAgent,
+    RacingHeuristicAgent,
     RandomAgent,
 )
 from boardgame_ml.envs.blackjack import BlackjackEnv, HIT, STAND
@@ -19,6 +20,7 @@ from boardgame_ml.envs.match3 import (
     find_matches,
     score_matches,
 )
+from boardgame_ml.envs.racing import RacingEnv
 
 # Match-free 5x5 with a planted legal move (see tests/test_match3_rules.py).
 SCRIPTED5 = np.array(
@@ -175,3 +177,82 @@ def test_flappy_heuristic_beats_random():
     random_mean = mean_score(RandomAgent(seed=1))
     assert heuristic_mean >= 3.0
     assert heuristic_mean > random_mean + 3.0
+
+
+# -- Racing -------------------------------------------------------------------
+
+
+def _racing_obs(env, rays, speed_frac=0.0, offset=0.0):
+    """A synthetic racing observation: the heuristic reads only the
+    obs, so its rule can be unit-tested without an episode."""
+    obs = np.zeros(env.observation_space.shape, dtype=np.float32)
+    obs[: env.n_rays] = rays
+    obs[env.n_rays] = speed_frac  # speed / max_speed
+    obs[env.n_rays + 3] = offset  # lateral offset / half-width
+    return obs
+
+
+def test_random_agent_samples_the_box_for_continuous_games():
+    agent = RandomAgent(seed=0)
+    env = RacingEnv()
+    obs, _ = env.reset(seed=0)
+    for _ in range(50):
+        action = agent.select_action(env, obs)
+        assert isinstance(action, np.ndarray)
+        assert action.shape == (2,)
+        assert env.action_space.contains(action)
+
+
+def test_racing_heuristic_steers_toward_open_space():
+    agent = RacingHeuristicAgent()
+    env = RacingEnv()
+    angles = env.ray_angles
+    # Left side (positive ray angles) walled off, right side open:
+    # the distance-weighted centroid points right -> steer right (< 0).
+    rays = np.where(angles > 0, 0.08, 1.0).astype(np.float32)
+    action = agent.select_action(env, _racing_obs(env, rays))
+    assert action[0] < -0.1
+    # Mirror image: steer left.
+    rays = np.where(angles < 0, 0.08, 1.0).astype(np.float32)
+    action = agent.select_action(env, _racing_obs(env, rays))
+    assert action[0] > 0.1
+
+
+def test_racing_heuristic_brakes_when_fast_and_blind():
+    agent = RacingHeuristicAgent()
+    env = RacingEnv()
+    # Walls close on every side and already at 90% of top speed:
+    # the speed controller must brake.
+    rays = np.full(env.n_rays, 0.05, dtype=np.float32)
+    action = agent.select_action(env, _racing_obs(env, rays, speed_frac=0.9))
+    assert action[1] < 0.0
+    # Open road ahead, standing still: full-ish throttle.
+    rays = np.full(env.n_rays, 1.0, dtype=np.float32)
+    action = agent.select_action(env, _racing_obs(env, rays, speed_frac=0.0))
+    assert action[1] > 0.5
+
+
+def test_racing_heuristic_circulates_and_random_does_not():
+    """The yardstick, measured: on a fixed seed batch the heuristic
+    laps the track repeatedly while random barely leaves the spawn."""
+
+    def mean_progress(agent, episodes=12, seed0=3000):
+        env = RacingEnv()
+        total = 0.0
+        laps = 0
+        for ep in range(episodes):
+            obs, _ = env.reset(seed=seed0 + ep)
+            done = False
+            while not done:
+                obs, _r, terminated, truncated, info = env.step(
+                    agent.select_action(env, obs)
+                )
+                done = terminated or truncated
+            total += info["progress_m"]
+            laps += info["laps"]
+        return total / episodes, laps / episodes
+
+    heuristic_progress, heuristic_laps = mean_progress(RacingHeuristicAgent())
+    random_progress, _ = mean_progress(RandomAgent(seed=1))
+    assert heuristic_laps >= 2.0
+    assert heuristic_progress > random_progress + 500.0

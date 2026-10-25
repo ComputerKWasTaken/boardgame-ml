@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import argparse
 
+import numpy as np
+
 from boardgame_ml.envs import make_env
 from boardgame_ml.envs import match3 as _m3
 from boardgame_ml.eval.evaluate import predict_action, resolve_agent
@@ -53,8 +55,14 @@ def play(game: str, agent_spec: str, episodes: int = 1, seed: int = 0) -> None:
             action = predict_action(agent, env, obs)
             obs, reward, terminated, truncated, info = env.step(action)
             total += float(reward)
+            if isinstance(action, np.ndarray):
+                label = "[" + ", ".join(
+                    f"{float(v):+.2f}" for v in action.reshape(-1)
+                ) + "]"
+            else:
+                label = names.get(action, action)
             print(
-                f"  -> {names.get(action, action)} | reward {float(reward):+g} "
+                f"  -> {label} | reward {float(reward):+g} "
                 f"| running total {total:+g}"
             )
             print(env.render())

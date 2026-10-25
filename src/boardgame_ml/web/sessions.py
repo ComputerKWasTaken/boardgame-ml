@@ -34,9 +34,27 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from boardgame_ml.envs import make_env
 from boardgame_ml.eval.evaluate import predict_action, resolve_agent
 from boardgame_ml.play import ACTION_NAMES
+
+
+def _action_label(game: str, action) -> tuple[Any, str]:
+    """(JSON-safe action, display name) for one taken action.
+
+    Discrete actions serialize as-is and name through ``ACTION_NAMES``;
+    continuous (``Box``) actions have no per-action names — they
+    serialize as a list of floats and display as their components.
+    """
+    if isinstance(action, np.ndarray):
+        flat = [float(a) for a in action.reshape(-1)]
+        if game == "racing" and len(flat) == 2:
+            return flat, f"steer {flat[0]:+.2f} · throttle {flat[1]:+.2f}"
+        return flat, "[" + ", ".join(f"{v:+.2f}" for v in flat) + "]"
+    names = ACTION_NAMES.get(game, {})
+    return action, names.get(action, str(action))
 from boardgame_ml.web.render_state import build_render
 
 
@@ -134,8 +152,7 @@ class WatchSession:
         done = bool(terminated or truncated)
         self.step_in_episode += 1
         self.episode_return += reward
-        names = ACTION_NAMES.get(self.game, {})
-        action_name = names.get(action, str(action))
+        action, action_name = _action_label(self.game, action)
 
         if self.game == "higher_or_lower":
             self._history.append(

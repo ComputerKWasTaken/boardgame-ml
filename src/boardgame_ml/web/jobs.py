@@ -51,6 +51,7 @@ PRESETS: dict[str, dict[str, Any]] = {
             "blackjack": 20_000,
             "higher_or_lower": 10_000,
             "flappy": 100_000,
+            "racing": 250_000,
         },
         "eval_freq": 5_000,
         "eval_episodes": 200,
@@ -60,6 +61,7 @@ PRESETS: dict[str, dict[str, Any]] = {
             "blackjack": 100_000,
             "higher_or_lower": 60_000,
             "flappy": 300_000,
+            "racing": 750_000,
         },
         "eval_freq": 10_000,
         "eval_episodes": 500,
@@ -69,6 +71,7 @@ PRESETS: dict[str, dict[str, Any]] = {
             "blackjack": 300_000,
             "higher_or_lower": 100_000,
             "flappy": 600_000,
+            "racing": 1_500_000,
         },
         "eval_freq": 20_000,
         "eval_episodes": 500,
@@ -110,6 +113,13 @@ DEFAULT_HYPERPARAMS: dict[tuple[str, str], dict[str, Any]] = {
         "ent_coef": 0.01,
         "gae_lambda": 0.95,
     },
+    ("racing", "ppo"): {
+        "n_steps": 256,
+        "batch_size": 1024,
+        "n_epochs": 4,
+        "ent_coef": 0.0,
+        "gae_lambda": 0.95,
+    },
 }
 
 DEFAULT_LEARNING_RATES: dict[tuple[str, str], float] = {
@@ -117,6 +127,7 @@ DEFAULT_LEARNING_RATES: dict[tuple[str, str], float] = {
     ("blackjack", "dqn"): 5e-4,
     ("higher_or_lower", "maskable_ppo"): 1e-3,
     ("flappy", "ppo"): 3e-4,
+    ("racing", "ppo"): 3e-4,
 }
 
 

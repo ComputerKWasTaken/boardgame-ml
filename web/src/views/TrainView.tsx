@@ -104,6 +104,7 @@ export default function TrainView({ onWatch, onRunFinished }: Props) {
           >
             <option value="blackjack">Blackjack</option>
             <option value="higher_or_lower">Higher or Lower</option>
+            <option value="racing">Racing</option>
           </select>
         </label>
         <label>

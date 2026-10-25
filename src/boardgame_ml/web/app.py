@@ -76,7 +76,26 @@ GAME_INFO: dict[str, dict[str, str]] = {
         "is needed. +1 per pipe cleared, +0.01 per step of distance; "
         "crashing ends the episode.",
     },
+    "racing": {
+        "display_name": "Racing",
+        "observation": (
+            "11-ray fan to the track edges · speed · heading vs "
+            "centerline tangent · lateral offset · steering"
+        ),
+        "blurb": "The first continuous-action game: a Box(2) of "
+        "steering and throttle on a fixed closed track. Reward is "
+        "checkpoint progress in metres (+100 per lap); leaving the "
+        "track ends the episode. Lateral grip caps cornering speed, "
+        "so braking for corners is a real, learnable skill.",
+    },
 }
+
+#: Baseline reference evaluations on the Games card. Every game is
+#: measured over 1,000 episodes except racing: its episodes run up
+#: to 1,800 steps of continuous simulation (vs ~10–400 for the
+#: others), so the card uses a smaller — still three-figure —
+#: sample to stay responsive. The count ships in the payload.
+_BASELINE_EPISODES: dict[str, int] = {"racing": 100}
 
 _BASE_STEP_SECONDS = 0.9  # watch-mode step interval at speed 1
 
@@ -188,7 +207,12 @@ def create_app(runs_dir: str | Path = "runs") -> FastAPI:
             rows = []
             for cls in BASELINES.values():
                 if game in cls.games:
-                    result = evaluate(game, cls.name, episodes=1000, seed=20240)
+                    result = evaluate(
+                        game,
+                        cls.name,
+                        episodes=_BASELINE_EPISODES.get(game, 1000),
+                        seed=20240,
+                    )
                     rows.append(
                         {
                             "name": cls.name,
