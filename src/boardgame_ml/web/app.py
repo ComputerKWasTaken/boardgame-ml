@@ -36,7 +36,14 @@ from boardgame_ml.envs import GAMES
 from boardgame_ml.eval.evaluate import evaluate
 from boardgame_ml.play import ACTION_NAMES
 from boardgame_ml.training.algorithms import MODEL_CLASSES, ensure_mask_compatible
-from boardgame_ml.web.jobs import PRESETS, JobManager, build_config
+from boardgame_ml.web.jobs import (
+    GAME_ALGORITHMS,
+    PRESETS,
+    JobManager,
+    build_config,
+    default_algorithm,
+    pair_defaults_payload,
+)
 from boardgame_ml.web.sessions import SessionManager
 
 GAME_INFO: dict[str, dict[str, str]] = {
@@ -257,6 +264,17 @@ def create_app(runs_dir: str | Path = "runs") -> FastAPI:
     def meta() -> dict:
         return {
             "algorithms": sorted(MODEL_CLASSES),
+            # Per-game algorithm choices for the Train view: exactly
+            # the (game, algorithm) pairs with a shipped config, plus
+            # the preselected default per game.
+            "game_algorithms": GAME_ALGORITHMS,
+            "default_algorithms": {
+                game: default_algorithm(game) for game in GAME_ALGORITHMS
+            },
+            # The effective per-pair settings build_config will use
+            # (mirroring configs/*.yaml — parity-tested), so the
+            # Train view can show them instead of diverging silently.
+            "pair_defaults": pair_defaults_payload(),
             "presets": {
                 name: {
                     "timesteps": p["timesteps"],

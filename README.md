@@ -166,12 +166,21 @@ Three views:
   (the proof-of-learning yardsticks, measured live by the evaluator)
   and a table of runs from `runs/` with best-eval returns; star
   runs, and jump straight to watching any checkpoint or baseline.
-* **Train** — game / algorithm / preset (quick · standard · long)
-  with timesteps, learning-rate, and seed editable; a live chart of
-  episode returns with deterministic eval means as they land (SSE
-  stream from the training job). **Stop** ends training gracefully
-  and keeps the best-by-eval checkpoint (a job stopped before its
-  first eval keeps `final_model.zip` only).
+* **Train** — all five games, with the algorithms each game's
+  shipped config supports; timesteps, learning-rate, and seed are
+  editable on top of per-(game, algorithm) defaults that **mirror
+  `configs/*.yaml`** (gamma, policy, env_kwargs, env counts,
+  hyperparams), guarded by parity tests
+  (`tests/test_web_parity.py`) that compare the cockpit's table
+  against the YAML files themselves — a cockpit run is the shipped
+  run, not a silent approximation of it. The form shows the
+  effective config it will launch. For racing, **SAC is
+  preselected**: it plateaus and stays there, while PPO's slightly
+  faster peak survives only via the best-by-eval checkpoint. A
+  live chart shows episode returns with deterministic eval means
+  as they land (SSE stream from the training job). **Stop** ends
+  training gracefully and keeps the best-by-eval checkpoint (a job
+  stopped before its first eval keeps `final_model.zip` only).
 * **Watch** — pick a run checkpoint or a baseline and watch it play
   live (WebSocket-streamed steps; play / pause / step / speed), with
   per-game boards, an action feed, and session stats. **Save

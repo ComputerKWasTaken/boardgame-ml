@@ -28,10 +28,40 @@ export default function TrainView({ onWatch, onRunFinished }: Props) {
   const set = (patch: Partial<typeof settings>) =>
     setSettings((s) => ({ ...s, ...patch }));
 
+  // The algorithm must belong to the selected game; when meta loads
+  // or the game changes, fall back to that game's preselected
+  // default (e.g. racing → SAC) rather than leaving a stale pair.
+  const gameAlgorithms =
+    meta?.game_algorithms?.[settings.game] ?? meta?.algorithms ?? [];
+  useEffect(() => {
+    if (!meta) return;
+    const algos = meta.game_algorithms?.[settings.game];
+    if (algos && !algos.includes(settings.algorithm)) {
+      set({
+        algorithm:
+          meta.default_algorithms?.[settings.game] ?? algos[0],
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meta, settings.game]);
+
+  const changeGame = (game: string) => {
+    const algos = meta?.game_algorithms?.[game];
+    if (algos && !algos.includes(settings.algorithm)) {
+      set({
+        game,
+        algorithm: meta?.default_algorithms?.[game] ?? algos[0],
+      });
+    } else {
+      set({ game });
+    }
+  };
+
+  const pairKey = `${settings.game}:${settings.algorithm}`;
+  const pairDefaults = meta?.pair_defaults?.[pairKey];
+  const presetTable = meta?.presets[settings.preset]?.timesteps;
   const presetTimesteps =
-    meta && settings.game
-      ? meta.presets[settings.preset]?.timesteps[settings.game]
-      : undefined;
+    presetTable?.[pairKey] ?? presetTable?.[settings.game];
 
   const start = async () => {
     setError(null);
@@ -99,11 +129,13 @@ export default function TrainView({ onWatch, onRunFinished }: Props) {
           Game
           <select
             value={settings.game}
-            onChange={(e) => set({ game: e.target.value })}
+            onChange={(e) => changeGame(e.target.value)}
             disabled={running}
           >
             <option value="blackjack">Blackjack</option>
             <option value="higher_or_lower">Higher or Lower</option>
+            <option value="match3">Match 3</option>
+            <option value="flappy">Flappy Bird</option>
             <option value="racing">Racing</option>
           </select>
         </label>
@@ -114,7 +146,7 @@ export default function TrainView({ onWatch, onRunFinished }: Props) {
             onChange={(e) => set({ algorithm: e.target.value })}
             disabled={running}
           >
-            {(meta?.algorithms ?? ["maskable_ppo"]).map((a) => (
+            {gameAlgorithms.map((a) => (
               <option key={a} value={a}>
                 {a}
               </option>
@@ -128,14 +160,17 @@ export default function TrainView({ onWatch, onRunFinished }: Props) {
             onChange={(e) => set({ preset: e.target.value })}
             disabled={running}
           >
-            {Object.keys(meta?.presets ?? { standard: 1 }).map((p) => (
-              <option key={p} value={p}>
-                {p}
-                {meta?.presets[p]?.timesteps[settings.game]
-                  ? ` (${meta.presets[p].timesteps[settings.game].toLocaleString()} steps)`
-                  : ""}
-              </option>
-            ))}
+            {Object.keys(meta?.presets ?? { standard: 1 }).map((p) => {
+              const steps =
+                meta?.presets[p]?.timesteps[pairKey] ??
+                meta?.presets[p]?.timesteps[settings.game];
+              return (
+                <option key={p} value={p}>
+                  {p}
+                  {steps ? ` (${steps.toLocaleString()} steps)` : ""}
+                </option>
+              );
+            })}
           </select>
         </label>
         <label>
@@ -177,10 +212,51 @@ export default function TrainView({ onWatch, onRunFinished }: Props) {
             </button>
           ) : (
             <button className="btn danger" onClick={stop}>
-              Stop (keeps best checkpoint)
+              Stop training
             </button>
           )}
         </div>
+        {running && (
+          <p className="hint">
+            Stopping keeps the best-by-eval checkpoint — unless no eval
+            has run yet, in which case only the final model is saved
+            (there is no best checkpoint to keep).
+          </p>
+        )}
+        <div className="config-readout">
+          <span className="readout-label">Effective config</span>
+          {pairDefaults ? (
+            <span className="mono">
+              {settings.algorithm} · γ {pairDefaults.gamma} ·{" "}
+              {pairDefaults.policy}
+              {Object.keys(pairDefaults.policy_kwargs).length > 0
+                ? ` ${JSON.stringify(pairDefaults.policy_kwargs)}`
+                : ""}{" "}
+              · {pairDefaults.n_envs} env
+              {pairDefaults.n_envs === 1 ? "" : "s"} · lr{" "}
+              {settings.learningRate.trim() !== ""
+                ? settings.learningRate
+                : pairDefaults.learning_rate}
+              {Object.keys(pairDefaults.env_kwargs).length > 0
+                ? ` · env ${JSON.stringify(pairDefaults.env_kwargs)}`
+                : ""}
+              {presetTimesteps
+                ? ` · ${presetTimesteps.toLocaleString()} steps (${settings.preset})`
+                : ""}
+            </span>
+          ) : (
+            <span className="mono">
+              framework defaults (γ 0.99 · MlpPolicy · 4 envs)
+            </span>
+          )}
+        </div>
+        {settings.game === "racing" && (
+          <p className="hint">
+            {settings.algorithm === "sac"
+              ? "SAC is the recommended racing default: it plateaus and stays there — its final model is as good as its best."
+              : "PPO's peak lap is slightly faster, but it destabilizes late in training; the run's product is its best-by-eval checkpoint."}
+          </p>
+        )}
         <p className="hint">
           Mask-blind algorithms (ppo, dqn) are refused for games that mask
           actions — the framework's mask guard applies here too.

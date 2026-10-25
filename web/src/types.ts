@@ -40,12 +40,27 @@ export interface RunEntry {
 
 export interface PresetInfo {
   timesteps: Record<string, number>;
-  eval_freq: number;
-  eval_episodes: number;
+  eval_freq: Record<string, number>;
+  eval_episodes: Record<string, number>;
+}
+
+/** Effective per-(game, algorithm) settings from the backend's
+ * parity-tested defaults table (mirrors configs/*.yaml). */
+export interface PairDefaults {
+  gamma: number;
+  policy: string;
+  policy_kwargs: Record<string, unknown>;
+  env_kwargs: Record<string, unknown>;
+  n_envs: number;
+  learning_rate: number;
+  hyperparams: Record<string, unknown>;
 }
 
 export interface MetaInfo {
   algorithms: string[];
+  game_algorithms: Record<string, string[]>;
+  default_algorithms: Record<string, string>;
+  pair_defaults: Record<string, PairDefaults>;
   presets: Record<string, PresetInfo>;
   baselines: string[];
 }

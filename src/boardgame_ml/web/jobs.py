@@ -29,6 +29,7 @@ import threading
 import time
 import uuid
 from collections import deque
+from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -40,95 +41,263 @@ from boardgame_ml.training.config import ExperimentConfig
 from boardgame_ml.training.train import config_hash, train
 
 # ---------------------------------------------------------------------------
-# Presets and defaults (mirroring configs/*.yaml)
+# Presets and per-pair defaults (mirroring configs/*.yaml)
 # ---------------------------------------------------------------------------
 
-#: UI presets: total timesteps per game, plus eval cadence. "standard"
-#: tracks the shipped YAML configs; quick/long scale around them.
-PRESETS: dict[str, dict[str, Any]] = {
+#: UI presets: total timesteps plus eval cadence. "standard" tracks
+#: the shipped YAML configs' budgets; quick/long scale around them.
+#: Each field is a lookup table keyed by "game:algorithm", then
+#: "game", then "default" (see :func:`_preset_value`). Eval cadence
+#: is per game because episode lengths differ by orders of magnitude:
+#: the shipped YAMLs evaluate racing on 10 episodes (each up to
+#: 1,800 steps) and the board/card games on hundreds.
+PRESETS: dict[str, dict[str, dict[str, int]]] = {
     "quick": {
         "timesteps": {
+            "default": 50_000,
             "blackjack": 20_000,
             "higher_or_lower": 10_000,
+            "match3": 100_000,
             "flappy": 100_000,
             "racing": 250_000,
+            "racing:sac": 50_000,
         },
-        "eval_freq": 5_000,
-        "eval_episodes": 200,
+        "eval_freq": {
+            "default": 5_000,
+            "match3": 25_000,
+            "racing": 10_000,
+        },
+        "eval_episodes": {"default": 200, "racing": 10},
     },
     "standard": {
         "timesteps": {
+            "default": 50_000,
             "blackjack": 100_000,
             "higher_or_lower": 60_000,
+            "match3": 700_000,
             "flappy": 300_000,
-            "racing": 750_000,
+            "racing": 600_000,
+            "racing:sac": 150_000,
         },
-        "eval_freq": 10_000,
-        "eval_episodes": 500,
+        "eval_freq": {
+            "default": 10_000,
+            "blackjack": 20_000,
+            "higher_or_lower": 10_000,
+            "match3": 25_000,
+            "flappy": 25_000,
+            "racing": 25_000,
+            "racing:sac": 10_000,
+        },
+        "eval_episodes": {
+            "default": 500,
+            "match3": 200,
+            "flappy": 200,
+            "racing": 10,
+        },
     },
     "long": {
         "timesteps": {
+            "default": 100_000,
             "blackjack": 300_000,
             "higher_or_lower": 100_000,
+            "match3": 1_000_000,
             "flappy": 600_000,
             "racing": 1_500_000,
+            "racing:sac": 300_000,
         },
-        "eval_freq": 20_000,
-        "eval_episodes": 500,
+        "eval_freq": {
+            "default": 10_000,
+            "blackjack": 20_000,
+            "higher_or_lower": 10_000,
+            "match3": 25_000,
+            "flappy": 25_000,
+            "racing": 25_000,
+            "racing:sac": 10_000,
+        },
+        "eval_episodes": {
+            "default": 500,
+            "match3": 200,
+            "flappy": 200,
+            "racing": 10,
+        },
     },
 }
 
-_DEFAULT_TIMESTEPS = 50_000
 
-#: Hyperparameters from the shipped configs, keyed by (game, algorithm).
-#: Pairs not listed use SB3 defaults.
-DEFAULT_HYPERPARAMS: dict[tuple[str, str], dict[str, Any]] = {
+def _preset_value(
+    preset: str, field: str, game: str, algorithm: str
+) -> int:
+    """Resolve one preset field for a (game, algorithm) pair.
+
+    Most specific key wins: ``"game:algorithm"``, then ``"game"``,
+    then ``"default"`` (every preset table defines one).
+    """
+    table = PRESETS[preset][field]
+    for key in (f"{game}:{algorithm}", game, "default"):
+        if key in table:
+            return table[key]
+    raise KeyError(f"preset {preset!r} field {field!r} has no default")
+
+
+#: Per-(game, algorithm) defaults mirroring the shipped
+#: ``configs/*.yaml`` on every load-bearing field: ``gamma``,
+#: ``policy``, ``policy_kwargs``, ``env_kwargs``, ``n_envs``,
+#: ``learning_rate``, and the algorithm ``hyperparams``. Absent keys
+#: mean the framework defaults (MlpPolicy, no kwargs, gamma 0.99).
+#:
+#: This table is the cockpit's half of the cockpit/CLI parity
+#: contract: ``tests/test_web_parity.py`` compares it against the
+#: YAML files themselves, so editing a shipped config's load-bearing
+#: field without updating this table (or vice versa) fails the
+#: suite. Pairs not listed build with framework defaults, subject
+#: to the mask guard at job-creation time.
+PAIR_DEFAULTS: dict[tuple[str, str], dict[str, Any]] = {
     ("blackjack", "maskable_ppo"): {
-        "n_steps": 1024,
-        "batch_size": 256,
-        "n_epochs": 10,
-        "ent_coef": 0.005,
-        "gae_lambda": 0.95,
+        "gamma": 0.99,
+        "n_envs": 4,
+        "learning_rate": 3e-4,
+        "hyperparams": {
+            "n_steps": 1024,
+            "batch_size": 256,
+            "n_epochs": 10,
+            "ent_coef": 0.005,
+            "gae_lambda": 0.95,
+        },
     },
     ("blackjack", "dqn"): {
-        "buffer_size": 100_000,
-        "batch_size": 128,
-        "learning_starts": 1000,
-        "train_freq": 4,
-        "target_update_interval": 1000,
-        "exploration_fraction": 0.25,
-        "exploration_final_eps": 0.05,
+        "gamma": 0.99,
+        "n_envs": 4,
+        "learning_rate": 5e-4,
+        "hyperparams": {
+            "buffer_size": 100_000,
+            "batch_size": 128,
+            "learning_starts": 1000,
+            "train_freq": 4,
+            "target_update_interval": 1000,
+            "exploration_fraction": 0.25,
+            "exploration_final_eps": 0.05,
+        },
     },
     ("higher_or_lower", "maskable_ppo"): {
-        "n_steps": 512,
-        "batch_size": 256,
-        "n_epochs": 4,
-        "ent_coef": 0.0,
-        "gae_lambda": 0.95,
+        "gamma": 0.99,
+        "n_envs": 4,
+        "learning_rate": 1e-3,
+        "hyperparams": {
+            "n_steps": 512,
+            "batch_size": 256,
+            "n_epochs": 4,
+            "ent_coef": 0.0,
+            "gae_lambda": 0.95,
+        },
+    },
+    ("match3", "maskable_ppo"): {
+        "gamma": 0.99,
+        "n_envs": 8,
+        "learning_rate": 3e-4,
+        "policy": "MultiInputPolicy",
+        "policy_kwargs": {"net_arch": {"pi": [256, 256], "vf": [256, 256]}},
+        "env_kwargs": {
+            "board_rows": 8,
+            "board_cols": 8,
+            "num_gems": 6,
+            "max_moves": 20,
+        },
+        "hyperparams": {
+            "n_steps": 256,
+            "batch_size": 512,
+            "n_epochs": 4,
+            "ent_coef": 0.01,
+            "gae_lambda": 0.95,
+        },
     },
     ("flappy", "ppo"): {
-        "n_steps": 256,
-        "batch_size": 512,
-        "n_epochs": 4,
-        "ent_coef": 0.01,
-        "gae_lambda": 0.95,
+        "gamma": 0.99,
+        "n_envs": 8,
+        "learning_rate": 3e-4,
+        "hyperparams": {
+            "n_steps": 256,
+            "batch_size": 512,
+            "n_epochs": 4,
+            "ent_coef": 0.01,
+            "gae_lambda": 0.95,
+        },
     },
     ("racing", "ppo"): {
-        "n_steps": 256,
-        "batch_size": 1024,
-        "n_epochs": 4,
-        "ent_coef": 0.0,
-        "gae_lambda": 0.95,
+        # gamma 0.995 is the braking horizon (DESIGN.md, M5): at
+        # 0.99 the car never learns to brake. Do not "simplify" this
+        # back to the framework default — the parity test will fail,
+        # which is the point.
+        "gamma": 0.995,
+        "n_envs": 8,
+        "learning_rate": 3e-4,
+        "policy_kwargs": {"net_arch": [256, 256]},
+        "env_kwargs": {"track_seed": 7},
+        "hyperparams": {
+            "n_steps": 256,
+            "batch_size": 1024,
+            "n_epochs": 4,
+            "ent_coef": 0.005,
+            "gae_lambda": 0.98,
+        },
+    },
+    ("racing", "sac"): {
+        "gamma": 0.995,  # braking horizon, same as the PPO run
+        "n_envs": 1,  # SAC is update-bound on CPU; envs add nothing
+        "learning_rate": 3e-4,
+        "policy_kwargs": {"net_arch": [256, 256]},
+        "env_kwargs": {"track_seed": 7},
+        "hyperparams": {
+            "buffer_size": 300_000,
+            "batch_size": 256,
+            "tau": 0.005,
+            "ent_coef": "auto",
+            "learning_starts": 5000,
+            "train_freq": 1,
+            "gradient_steps": 1,
+        },
     },
 }
 
-DEFAULT_LEARNING_RATES: dict[tuple[str, str], float] = {
-    ("blackjack", "maskable_ppo"): 3e-4,
-    ("blackjack", "dqn"): 5e-4,
-    ("higher_or_lower", "maskable_ppo"): 1e-3,
-    ("flappy", "ppo"): 3e-4,
-    ("racing", "ppo"): 3e-4,
-}
+#: Algorithms the Train view offers per game, derived from
+#: :data:`PAIR_DEFAULTS` (i.e. exactly the pairs with a shipped
+#: config). Order is presentation order.
+GAME_ALGORITHMS: dict[str, list[str]] = {}
+for _game, _algorithm in PAIR_DEFAULTS:
+    GAME_ALGORITHMS.setdefault(_game, []).append(_algorithm)
+
+#: The algorithm preselected per game in the Train view. Defaults to
+#: the first of :data:`GAME_ALGORITHMS`; racing overrides to SAC —
+#: the recommended racing driver (its final model is statistically
+#: its best model; PPO's slightly faster peak survives only via
+#: best-by-eval checkpoint selection — see DESIGN.md, M5).
+DEFAULT_ALGORITHM: dict[str, str] = {"racing": "sac"}
+
+
+def default_algorithm(game: str) -> str:
+    """The preselected algorithm for ``game`` in the Train view."""
+    algorithms = GAME_ALGORITHMS[game]
+    return DEFAULT_ALGORITHM.get(game, algorithms[0])
+
+
+def pair_defaults_payload() -> dict[str, dict[str, Any]]:
+    """JSON-friendly view of :data:`PAIR_DEFAULTS` for ``/api/meta``.
+
+    Keyed ``"game:algorithm"``; the Train view renders these as its
+    effective-config readout, so what the cockpit will actually run
+    is visible before a job starts — no silent divergence.
+    """
+    payload: dict[str, dict[str, Any]] = {}
+    for (game, algorithm), defaults in PAIR_DEFAULTS.items():
+        payload[f"{game}:{algorithm}"] = {
+            "gamma": defaults.get("gamma", 0.99),
+            "policy": defaults.get("policy", "MlpPolicy"),
+            "policy_kwargs": deepcopy(defaults.get("policy_kwargs", {})),
+            "env_kwargs": deepcopy(defaults.get("env_kwargs", {})),
+            "n_envs": defaults.get("n_envs", 4),
+            "learning_rate": defaults.get("learning_rate", 3e-4),
+            "hyperparams": deepcopy(defaults.get("hyperparams", {})),
+        }
+    return payload
 
 
 def build_config(
@@ -146,37 +315,52 @@ def build_config(
 ) -> ExperimentConfig:
     """Map a web train request onto an :class:`ExperimentConfig`.
 
-    Explicit fields win over the preset; the preset fills the rest.
-    Config validation (unknown game/algorithm, mask guard inputs,
-    shadowing hyperparams) happens in ``ExperimentConfig`` itself.
+    Explicit fields win; below them, the per-pair defaults table
+    (:data:`PAIR_DEFAULTS`, mirroring the shipped YAML) supplies the
+    load-bearing fields — gamma, policy, policy_kwargs, env_kwargs,
+    n_envs, learning rate, hyperparams — and the preset supplies the
+    budget and eval cadence. Config validation (unknown game or
+    algorithm, mask guard inputs, shadowing hyperparams) happens in
+    ``ExperimentConfig`` itself.
     """
     if preset not in PRESETS:
         raise ValueError(
             f"Unknown preset {preset!r}; available: {sorted(PRESETS)}"
         )
-    p = PRESETS[preset]
-    key = (game, algorithm)
+    pair = PAIR_DEFAULTS.get((game, algorithm), {})
     return ExperimentConfig(
         game=game,
         algorithm=algorithm,
         total_timesteps=(
             timesteps
             if timesteps is not None
-            else p["timesteps"].get(game, _DEFAULT_TIMESTEPS)
+            else _preset_value(preset, "timesteps", game, algorithm)
         ),
         seed=seed,
-        n_envs=n_envs if n_envs is not None else 4,
+        n_envs=(
+            n_envs if n_envs is not None else pair.get("n_envs", 4)
+        ),
         learning_rate=(
             learning_rate
             if learning_rate is not None
-            else DEFAULT_LEARNING_RATES.get(key, 3e-4)
+            else pair.get("learning_rate", 3e-4)
         ),
-        eval_freq=eval_freq if eval_freq is not None else p["eval_freq"],
+        gamma=pair.get("gamma", 0.99),
+        env_kwargs=dict(pair.get("env_kwargs", {})),
+        policy=pair.get("policy", "MlpPolicy"),
+        policy_kwargs=deepcopy(pair.get("policy_kwargs", {})),
+        eval_freq=(
+            eval_freq
+            if eval_freq is not None
+            else _preset_value(preset, "eval_freq", game, algorithm)
+        ),
         eval_episodes=(
-            eval_episodes if eval_episodes is not None else p["eval_episodes"]
+            eval_episodes
+            if eval_episodes is not None
+            else _preset_value(preset, "eval_episodes", game, algorithm)
         ),
         output_dir=output_dir,
-        hyperparams=dict(DEFAULT_HYPERPARAMS.get(key, {})),
+        hyperparams=deepcopy(pair.get("hyperparams", {})),
     )
 
 

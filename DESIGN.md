@@ -109,6 +109,29 @@ agreement with basic strategy over genuine decision states. This is
 deliberately separate from training: training curves are evidence of
 activity, evaluation is evidence of learning.
 
+### Cockpit/CLI config parity
+
+There are two ways to build a training config — the CLI from
+`configs/*.yaml`, and the web cockpit from `web/jobs.py`'s
+`PAIR_DEFAULTS` table — and they must never quietly disagree (that
+disagreement, config read from a place that doesn't say what you
+think it says, is legacy failure #2 in another costume, and it
+nearly shipped: the cockpit's original builder never set `gamma`,
+so a cockpit racing run would have used 0.99 — the value under
+which the car provably never learns to brake — and Match 3 wasn't
+offered at all). The mechanism keeping them in agreement:
+
+* `PAIR_DEFAULTS` mirrors every shipped YAML on the load-bearing
+  fields (gamma, policy, policy_kwargs, env_kwargs, n_envs,
+  learning rate, hyperparams); presets supply only budget and eval
+  cadence, and explicit UI fields override the table field-by-field.
+* `tests/test_web_parity.py` compares `build_config(game, algorithm)`
+  against the YAML files themselves for every shipped pair, so
+  editing either side without the other fails the suite.
+* The Train view displays the effective config (algorithm, gamma,
+  policy, env count, learning rate) before a job starts, so any
+  residual divergence is visible rather than silent.
+
 ## Adding a new game (5 steps)
 
 1. **Implement** `envs/<game>.py`: subclass `BaseGameEnv`, set the

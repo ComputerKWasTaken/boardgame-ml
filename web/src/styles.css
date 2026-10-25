@@ -246,6 +246,25 @@ th {
   margin: 0;
 }
 
+.config-readout {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+  flex-wrap: wrap;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
+}
+
+.readout-label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
 .form-actions {
   display: flex;
   gap: 0.6rem;
