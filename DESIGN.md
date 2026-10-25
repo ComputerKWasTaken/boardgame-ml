@@ -411,6 +411,37 @@ measured on eval curves, neither hidden:
   exactly this reason; it is the documented next experiment, not
   a footnote.
 
+* *The SAC experiment (run 2026-10-25).* The follow-up was run as
+  a controlled comparison: identical env, track, reward, and
+  γ = 0.995; only the algorithm changed (`configs/racing_sac.yaml`
+  — buffer 300k ≥ the run, batch 256, lr 3e-4, τ 0.005,
+  `ent_coef: "auto"`, `learning_starts` 5k, one env; 150k steps,
+  a budget set by SAC's measured throughput, ~37 steps/s with
+  evals vs PPO's ~1,264 — 4,068 s of wall clock). The eval curve
+  answers the question the PPO collapse posed. SAC climbed
+  17 → 149 → 525 → **2,848 at 40k steps** (PPO needed 75k to
+  peak) and then held a plateau for the remaining 110k steps:
+  twelve evals, mean 2,868, std 18 (0.6%), peak 2,893 at 70k,
+  **final eval 2,892.8 — the end of training is the peak, within
+  noise**. The independent 100-episode eval confirms it in the
+  artifacts themselves: SAC best-by-eval 2,895.6, SAC final
+  2,891.3 — the same driver — against PPO best 2,971.6 and PPO
+  final 146.1 (0 laps, 100% crashes). Both SAC checkpoints keep
+  PPO-best's 100% lap completion and zero crashes; PPO's rescued
+  peak keeps a small edge (~2.6% return, ~3% per lap: 11.95 s vs
+  12.33 s mean). Two conclusions. First, the collapse is an
+  on-policy failure, not a property of this env or reward: the
+  same return scale that accompanied PPO's degradation does not
+  destabilize an off-policy learner, which narrows (without
+  closing) the open mechanism question above. Second, the
+  trade is explicit and measured: SAC buys a trustworthy final
+  artifact — best-by-eval becomes a formality — at ~34× PPO's
+  per-step cost, while needing about half the environment steps
+  to reach comparable driving. For this framework's purposes
+  (the run's product is the artifact you can ship), SAC is the
+  better racing driver; PPO's absolute peak remains the faster
+  lap, held by a checkpoint that dense evals had to catch.
+
 **Measured** (independent eval, 100 episodes, seeds 2,000,000+;
 README's M5 table): the trained policy completes a lap in **100%**
 of episodes (7.0 laps per episode, zero crashes in 700 laps),

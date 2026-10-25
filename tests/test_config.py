@@ -153,6 +153,29 @@ def test_match3_policy_and_env_kwargs_reach_construction():
     assert "MultiInput" in type(model.policy).__name__
 
 
+# -- Racing SAC experiment (M5 follow-up): the shipped config ---------
+
+
+def test_racing_sac_shipped_config_loads():
+    """The SAC racing config is the PPO run's controlled comparison:
+    same game/track/gamma, algorithm and hyperparams swapped. The
+    YAML must load with the braking-horizon gamma intact and the
+    replay buffer sized to hold the whole run."""
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[1] / "configs" / "racing_sac.yaml"
+    cfg = ExperimentConfig.from_yaml(path)
+    assert cfg.game == "racing"
+    assert cfg.algorithm == "sac"
+    assert cfg.gamma == 0.995  # braking horizon (DESIGN.md, M5)
+    assert cfg.env_kwargs == {"track_seed": 7}
+    assert cfg.hyperparams["buffer_size"] >= cfg.total_timesteps
+    assert cfg.hyperparams["batch_size"] == 256
+    assert cfg.hyperparams["tau"] == 0.005
+    assert cfg.hyperparams["ent_coef"] == "auto"
+    assert cfg.hyperparams["learning_starts"] == 5000
+
+
 # -- fail-fast validation (hardening fix 7) ------------------------------
 
 

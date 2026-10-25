@@ -316,6 +316,9 @@ per episode, as in training.
 | Random (uniform box) | 9.5 | 0.6 | 3.2% of a lap | 0 | — |
 | **Heuristic** (raycast wall-follower) | 1447.4 | 0.2 | 380.7% | 3.0 | 23.54 s / 23.1 s |
 | **PPO**, 600k steps (best-by-eval) | **2971.6** | 0.3 | **753.7%** | **7.0** | **11.95 s / 11.35 s** |
+| PPO, 600k steps (final model) | 146.1 | 1.2 | 48.5% | 0 | — |
+| **SAC**, 150k steps (best-by-eval) | 2895.6 | 0.4 | 728.5% | 7.0 | 12.33 s / 12.05 s |
+| **SAC**, 150k steps (final model) | 2891.3 | 0.3 | 727.1% | 7.0 | 12.36 s / 11.90 s |
 
 Honest observations:
 
@@ -349,6 +352,26 @@ Training: 600,000 steps in 475 s of wall clock on this VM
 steps at ~7,750/s). Best-by-eval checkpoint selected at an
 in-training eval mean of 2971.4; the 100-episode independent
 figure above (2971.6) reproduces it almost exactly.
+
+**SAC follow-up (same day).** The documented next experiment —
+SAC on the identical game, track, and reward, γ = 0.995 carried
+over (`configs/racing_sac.yaml`; buffer 300k, batch 256,
+τ = 0.005, entropy auto-tuned, 150k steps — the budget set by
+SAC's measured ~37 steps/s on this VM vs PPO's ~1,260, for
+4,068 s of wall clock). The verdict is in the eval curve: SAC
+reached eval 2848 by 40k steps and then **stayed there** — twelve
+plateau evals from 40k to 150k steps, mean 2868 ± 18, peak 2893
+at 70k, final eval 2892.8. No collapse. The independent eval
+(table rows above) makes the contrast concrete: SAC's *final*
+model scores 2891.3 — statistically its best model — with the
+same 100% lap completion and zero crashes as PPO's rescued peak,
+while PPO's final model scores 146.1 and crashes in every
+episode. PPO's peak remains ~2.6% ahead on return and ~3% a lap
+(11.95 s vs 12.33 s), but that peak is a snapshot the framework's
+checkpoint rule had to catch; SAC's number is a steady state the
+run simply ends in. Sample-for-sample SAC also got there in
+about half the environment steps (plateau at 40k vs PPO's peak
+at 75k) — the cost is wall clock, not experience. See DESIGN.md.
 
 ## Post-M1 hardening
 

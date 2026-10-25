@@ -1,0 +1,56 @@
+# Racing (M5) with SAC — the documented follow-up experiment to the
+# PPO run (configs/racing_ppo.yaml). Same game, same canonical track
+# (track_seed 7), same reward: only the algorithm changes, so the two
+# runs isolate on-policy vs off-policy learning on identical ground.
+#
+# Why SAC is interesting here (DESIGN.md, M5 "Training dynamics"):
+# PPO at gamma 0.995 learns to lap within ~50-100k steps, peaks
+# (eval ~2971 at 75k), then destabilizes and collapses back to the
+# crash attractor; the shipped PPO driver is its best-by-eval
+# checkpoint. SAC — off-policy, replay-buffered, entropy-regularized
+# — has no on-policy distribution-shift failure mode in principle.
+# This run tests whether the eval curve holds instead of collapsing,
+# and at what sample cost.
+#
+# Hyperparameter notes:
+# * gamma 0.995: the braking-horizon lesson from the PPO run carries
+#   over unchanged — at 0.99 the payoff for braking lands outside
+#   the effective horizon and the car never learns to slow down.
+# * n_envs 1: SAC is update-bound on CPU (one gradient step per env
+#   step); extra envs add collection, not learning.
+# * buffer_size 300000 >= total_timesteps: the replay buffer can
+#   hold the entire run, so early experience is never evicted.
+# * learning_starts 5000: pure random-action driving first, so the
+#   buffer opens with diverse (mostly crashing) experience.
+# * ent_coef "auto": the entropy bonus (SAC's exploration drive) is
+#   tuned against its target automatically.
+# * eval_freq 10000 (denser than PPO's 25k): the eval curve's shape
+#   — peak location, whether the end of training still laps — is
+#   the measurement this run exists to make.
+# * total_timesteps 150000: sized by a measured throughput probe
+#   (~41 steps/s update-bound on this 2-core VM, vs PPO's ~1,264):
+#   150k steps ≈ 61 min of training. SAC's replay makes each step
+#   worth several PPO steps of experience reuse; the comparison to
+#   PPO's 600k is reported in steps as well as wall-clock.
+game: racing
+algorithm: sac
+total_timesteps: 150000
+seed: 0
+n_envs: 1
+learning_rate: 0.0003
+gamma: 0.995
+eval_episodes: 10
+eval_freq: 10000
+output_dir: runs
+env_kwargs:
+  track_seed: 7
+policy_kwargs:
+  net_arch: [256, 256]
+hyperparams:
+  buffer_size: 300000
+  batch_size: 256
+  tau: 0.005
+  ent_coef: auto
+  learning_starts: 5000
+  train_freq: 1
+  gradient_steps: 1
