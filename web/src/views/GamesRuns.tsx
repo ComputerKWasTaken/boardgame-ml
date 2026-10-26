@@ -79,7 +79,7 @@ export default function GamesRuns({ onWatch, refreshKey }: Props) {
                   <tr key={b.name}>
                     <td>{b.name}</td>
                     <td>{fmtReturn(b.mean_return)}</td>
-                    <td>{(b.win_rate * 100).toFixed(1)}%</td>
+                    <td>{b.win_rate === null ? "—" : `${(b.win_rate * 100).toFixed(1)}%`}</td>
                     <td>
                       <button
                         className="btn small"

@@ -12,6 +12,8 @@ from boardgame_ml.envs.higher_or_lower import HigherOrLowerEnv
 from boardgame_ml.envs.match3 import Match3Env
 from boardgame_ml.envs.racing import RacingEnv
 from boardgame_ml.envs.two_player import TwoPlayerEnv
+from boardgame_ml.envs.simultaneous import SimultaneousTwoPlayerEnv
+from boardgame_ml.envs.pong import PongEnv
 
 GAMES: dict[str, type[BaseGameEnv]] = {
     "blackjack": BlackjackEnv,
@@ -20,14 +22,17 @@ GAMES: dict[str, type[BaseGameEnv]] = {
     "flappy": FlappyBirdEnv,
     "racing": RacingEnv,
     "connect_four": ConnectFourEnv,
+    "pong": PongEnv,
 }
 
-#: The subset of :data:`GAMES` played under the two-player contract
-#: (:class:`TwoPlayerEnv`). Training these goes through the self-play
+#: Alternating and simultaneous two-player games. Training uses the matching
+#: single-seat adapter; alternating rules remain in :class:`TwoPlayerEnv`.
+#: Training these goes through the self-play
 #: wrapper; evaluation goes through the tournament harness.
 TWO_PLAYER_GAMES: frozenset[str] = frozenset(
-    name for name, cls in GAMES.items() if issubclass(cls, TwoPlayerEnv)
+    name for name, cls in GAMES.items() if issubclass(cls, (TwoPlayerEnv, SimultaneousTwoPlayerEnv))
 )
+SIMULTANEOUS_GAMES = frozenset(name for name, cls in GAMES.items() if issubclass(cls, SimultaneousTwoPlayerEnv))
 
 
 def make_env(
@@ -42,6 +47,9 @@ def make_env(
 __all__ = [
     "BaseGameEnv",
     "TwoPlayerEnv",
+    "SimultaneousTwoPlayerEnv",
+    "PongEnv",
+    "SIMULTANEOUS_GAMES",
     "BlackjackEnv",
     "HigherOrLowerEnv",
     "Match3Env",

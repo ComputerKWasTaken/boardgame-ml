@@ -1,5 +1,10 @@
 # boardgame-ml
 
+**Powerup Pong:** simultaneous two-player physics, bounded paddle movement,
+collect-and-activate abilities, PPO self-play, tournaments, and live/replay
+Watch support. See [rules, integration and experiments](docs/PONG.md), or
+train with `configs/pong_ppo.yaml`.
+
 A modular reinforcement-learning framework for teaching agents to play
 board and card games. Implement a game behind one small contract,
 train an agent on it, evaluate it against reference baselines, and

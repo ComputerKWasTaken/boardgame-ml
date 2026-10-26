@@ -26,7 +26,7 @@ import argparse
 import json
 from dataclasses import dataclass
 
-from boardgame_ml.envs import make_env
+from boardgame_ml.envs import SIMULTANEOUS_GAMES, make_env
 from boardgame_ml.eval.evaluate import predict_action, resolve_agent
 
 
@@ -92,11 +92,16 @@ def play_match(
     env = make_env(game, **(env_kwargs or {}))
     agents = (agent_seat0, agent_seat1)
     obs, info = env.reset(seed=seed)
+    from boardgame_ml.envs.simultaneous import SimultaneousTwoPlayerEnv, predict_joint
     while True:
-        player = info["current_player"]
-        action = predict_action(agents[player], env, obs)
+        if isinstance(env, SimultaneousTwoPlayerEnv):
+            action = predict_joint(agents, env, obs)
+        else:
+            player = info["current_player"]
+            action = predict_action(agents[player], env, obs)
         obs, _, terminated, truncated, info = env.step(action)
         if terminated or truncated:
+            env.close()
             return info.get("winner")
 
 
@@ -211,10 +216,10 @@ def run_tournament(
         "seed": seed,
         "pairings": pairings,
         "yardstick_matches": yardsticks,
-        "first_player_advantage": {
+        ("seat0_advantage" if game in SIMULTANEOUS_GAMES else "first_player_advantage"): {
             "decisive_games": decisive,
-            "first_player_wins": fp_wins,
-            "first_player_win_rate": (fp_wins / decisive) if decisive else 0.0,
+            ("seat0_wins" if game in SIMULTANEOUS_GAMES else "first_player_wins"): fp_wins,
+            ("seat0_win_rate" if game in SIMULTANEOUS_GAMES else "first_player_win_rate"): (fp_wins / decisive) if decisive else 0.0,
         },
     }
 
@@ -233,13 +238,17 @@ def format_report(result: dict) -> str:
     ]
     for spec, pairing in result["pairings"].items():
         lines.append(f"\nvs {spec}:")
-        lines.append(f"  as first : {_format_record(pairing['as_first'])}")
-        lines.append(f"  as second: {_format_record(pairing['as_second'])}")
+        labels = ("seat 0", "seat 1") if result["game"] in SIMULTANEOUS_GAMES else ("as first", "as second")
+        lines.append(f"  {labels[0]}: {_format_record(pairing['as_first'])}")
+        lines.append(f"  {labels[1]}: {_format_record(pairing['as_second'])}")
         lines.append(f"  combined : {_format_record(pairing['combined'])}")
     for key, pairing in result.get("yardstick_matches", {}).items():
         lines.append(f"\nyardsticks — {key} (row = first-named):")
         lines.append(f"  combined : {_format_record(pairing['combined'])}")
     fpa = result.get("first_player_advantage")
+    if result.get("seat0_advantage"):
+        seat = result["seat0_advantage"]
+        lines.append(f"\nseat-0 win share: {seat['seat0_win_rate']:.1%} of {seat['decisive_games']} decisive games (simultaneous play)")
     if fpa:
         lines.append(
             f"\nfirst-player advantage: the opening seat won "

@@ -131,6 +131,12 @@ PRESETS: dict[str, dict[str, dict[str, int]]] = {
 }
 
 
+for _preset, _steps, _episodes in (("quick", 50_000, 10), ("standard", 250_000, 20), ("long", 1_000_000, 20)):
+    PRESETS[_preset]["timesteps"]["pong"] = _steps
+    PRESETS[_preset]["eval_freq"]["pong"] = 25_000
+    PRESETS[_preset]["eval_episodes"]["pong"] = _episodes
+
+
 def _preset_value(
     preset: str, field: str, game: str, algorithm: str
 ) -> int:
@@ -159,6 +165,14 @@ def _preset_value(
 #: suite. Pairs not listed build with framework defaults, subject
 #: to the mask guard at job-creation time.
 PAIR_DEFAULTS: dict[tuple[str, str], dict[str, Any]] = {
+    ("pong", "ppo"): {
+        "gamma": 0.995,
+        "n_envs": 4,
+        "learning_rate": 3e-4,
+        "hyperparams": {"n_steps": 256, "batch_size": 256, "n_epochs": 4, "ent_coef": 0.01, "gae_lambda": 0.95},
+        "self_play": {"snapshot_interval": 25000, "snapshot_share": .7,
+                      "random_share": .1, "heuristic_share": .2, "heuristic": "pong_intercept"},
+    },
     ("blackjack", "maskable_ppo"): {
         "gamma": 0.99,
         "n_envs": 4,

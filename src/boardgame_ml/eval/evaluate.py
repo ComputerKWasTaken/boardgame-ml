@@ -86,6 +86,9 @@ def _check_checkpoint_spaces(
     plausible-looking garbage metrics.
     """
     env = make_env(game, **(env_kwargs or {}))
+    from boardgame_ml.envs.simultaneous import SimultaneousTwoPlayerEnv
+    if isinstance(env, SimultaneousTwoPlayerEnv):
+        env = env.player_view(0)
     if (
         model.observation_space != env.observation_space
         or model.action_space != env.action_space
@@ -131,6 +134,9 @@ def predict_action(agent, env, obs):
     """
     raw = env.unwrapped
     if isinstance(agent, BaselineAgent):
+        from boardgame_ml.envs.simultaneous import SimultaneousTwoPlayerEnv
+        if isinstance(getattr(raw, "env", None), SimultaneousTwoPlayerEnv):
+            raw = raw.env.player_view(raw.learner_seat)
         return agent.select_action(raw, obs)
     if isinstance(agent, MaskablePPO):
         mask = validate_mask(raw.action_masks(), raw.action_space.n)
@@ -157,6 +163,10 @@ def evaluate(
     )
     env = make_env(game, **(env_kwargs or {}))
     reference = BasicStrategyAgent() if game == "blackjack" else None
+    from boardgame_ml.envs.simultaneous import SimultaneousTwoPlayerEnv
+    if isinstance(env, SimultaneousTwoPlayerEnv):
+        from boardgame_ml.training.self_play import SimultaneousSelfPlayWrapper
+        env = SimultaneousSelfPlayWrapper(env, fixed_opponent=get_baseline("pong_intercept", game))
 
     returns: list[float] = []
     lengths: list[int] = []
@@ -184,9 +194,12 @@ def evaluate(
             done = terminated or truncated
         returns.append(ep_return)
         lengths.append(steps)
-        if ep_return > 0:
+        outcome = ep_return
+        if game == "pong":
+            outcome = 0 if info["winner"] is None else (1 if info["winner"] == info["learner_seat"] else -1)
+        if outcome > 0:
             wins += 1
-        elif ep_return < 0:
+        elif outcome < 0:
             losses += 1
         else:
             pushes += 1
@@ -202,6 +215,8 @@ def evaluate(
         "loss_rate": losses / episodes,
         "push_rate": pushes / episodes,
     }
+    if game == "pong":
+        result["opponent"] = "pong_intercept"
     if reference is not None and agree_total:
         result["basic_strategy_agreement"] = agree / agree_total
         result["agreement_decisions"] = agree_total
@@ -234,6 +249,8 @@ def main(argv: list[str] | None = None) -> None:
         print(json.dumps(result, indent=2))
     else:
         print(f"Game: {result['game']}   Agent: {result['agent']}")
+        if "opponent" in result:
+            print(f"Opponent: {result['opponent']} (both seats sampled)")
         print(f"Episodes: {result['episodes']}")
         print(f"Mean return: {result['mean_return']:+.4f} (±{result['std_return']:.3f})")
         print(

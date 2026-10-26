@@ -46,6 +46,7 @@ class RandomAgent(BaselineAgent):
         "flappy",
         "racing",
         "connect_four",
+        "pong",
     )
 
     def __init__(self, seed: int | None = None) -> None:
@@ -600,6 +601,43 @@ class ConnectFourMinimaxAgent(BaselineAgent):
         return best
 
 
+class PongTrackerAgent(BaselineAgent):
+    """Reactive ball-height follower; no predictive interception."""
+    name = "pong_tracker"
+    games = ("pong",)
+
+    def select_action(self, env, obs):
+        error = float(obs[1] - obs[4]) * env.height
+        # Braking distance matters: changing direction never teleports.
+        velocity = float(obs[5]) * env.paddle_speed
+        error -= velocity * abs(velocity) / (2 * env.paddle_acceleration)
+        return 2 if error > 5 else 0 if error < -5 else 1
+
+
+class PongInterceptAgent(PongTrackerAgent):
+    """Obs-only wall-bounce prediction, with situational power activation."""
+    name = "pong_intercept"
+
+    def select_action(self, env, obs):
+        x, y, vx, vy = (float(obs[0]) * env.width, float(obs[1]) * env.height,
+                        float(obs[2]) * env.ball_speed_cap, float(obs[3]) * env.ball_speed_cap)
+        target = env.height / 2
+        incoming = vx < -1e-6 and obs[11] == 0
+        eta = float("inf")
+        if incoming:
+            face = env.paddle_inset + env.paddle_width / 2 + env.ball_radius
+            eta = max(0.0, (face - x) / vx)
+            span = env.height - 2 * env.ball_radius
+            folded = (y + vy * eta - env.ball_radius) % (2 * span)
+            target = env.ball_radius + min(folded, 2 * span - folded)
+        projected = np.array(obs, copy=True)
+        projected[1] = target / env.height
+        action = super().select_action(env, projected)
+        inventory = int(np.argmax(obs[12:16]))
+        activate = (inventory == 1 and incoming and eta < .8) or (inventory == 2 and incoming and eta < .4) or (inventory == 3 and incoming and eta < .5 and abs(target - float(obs[4]) * env.height) > env.paddle_height / 2)
+        return action + (3 if activate else 0)
+
+
 BASELINES: dict[str, type[BaselineAgent]] = {
     cls.name: cls
     for cls in (
@@ -609,6 +647,8 @@ BASELINES: dict[str, type[BaselineAgent]] = {
         GreedyMatch3Agent,
         FlappyHeuristicAgent,
         RacingHeuristicAgent,
+        PongTrackerAgent,
+        PongInterceptAgent,
         ConnectFourGreedyAgent,
         ConnectFourGreedyNoisyAgent,
         ConnectFourMinimaxAgent,

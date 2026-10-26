@@ -18,6 +18,8 @@ import numpy as np
 
 from boardgame_ml.envs import make_env
 from boardgame_ml.envs import match3 as _m3
+from boardgame_ml.envs.pong import ACTION_NAMES as PONG_ACTION_NAMES
+from boardgame_ml.envs.simultaneous import SimultaneousTwoPlayerEnv, predict_joint
 from boardgame_ml.eval.evaluate import predict_action, resolve_agent
 
 
@@ -33,6 +35,7 @@ def _match3_action_names() -> dict[int, str]:
 
 
 ACTION_NAMES = {
+    "pong": PONG_ACTION_NAMES,
     "blackjack": {0: "STAND", 1: "HIT"},
     "higher_or_lower": {0: "HIGHER", 1: "LOWER", 2: "HOLD"},
     "match3": _match3_action_names(),
@@ -53,10 +56,15 @@ def play(game: str, agent_spec: str, episodes: int = 1, seed: int = 0) -> None:
         total = 0.0
         done = False
         while not done:
-            action = predict_action(agent, env, obs)
+            simultaneous = isinstance(env, SimultaneousTwoPlayerEnv)
+            action = predict_joint((agent, agent), env, obs) if simultaneous else predict_action(agent, env, obs)
             obs, reward, terminated, truncated, info = env.step(action)
+            if simultaneous:
+                reward = reward[0]
             total += float(reward)
-            if isinstance(action, np.ndarray):
+            if simultaneous:
+                label = " · ".join(f"P{i + 1}: {names[a]}" for i, a in enumerate(action))
+            elif isinstance(action, np.ndarray):
                 label = "[" + ", ".join(
                     f"{float(v):+.2f}" for v in action.reshape(-1)
                 ) + "]"
@@ -69,6 +77,7 @@ def play(game: str, agent_spec: str, episodes: int = 1, seed: int = 0) -> None:
             print(env.render())
             done = terminated or truncated
         print(f"Episode return: {total:+g}\n")
+    env.close()
 
 
 def main(argv: list[str] | None = None) -> None:

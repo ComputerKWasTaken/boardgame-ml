@@ -37,6 +37,7 @@ from typing import Any
 import numpy as np
 
 from boardgame_ml.envs import TWO_PLAYER_GAMES, make_env
+from boardgame_ml.envs.simultaneous import SimultaneousTwoPlayerEnv, predict_joint
 from boardgame_ml.eval.evaluate import predict_action, resolve_agent
 from boardgame_ml.play import ACTION_NAMES
 
@@ -82,6 +83,7 @@ class WatchSession:
         seed: int = 0,
         opponent=None,
         opponent_label: str | None = None,
+        env_kwargs: dict | None = None,
     ) -> None:
         self.session_id = uuid.uuid4().hex[:12]
         self.game = game
@@ -90,7 +92,8 @@ class WatchSession:
         self.opponent = opponent
         self.opponent_label = opponent_label
         self.base_seed = seed
-        self.env = make_env(game, render_mode="human")
+        self.env = make_env(game, render_mode="human", **(env_kwargs or {}))
+        self.tick_seconds = self.env.dt if isinstance(self.env, SimultaneousTwoPlayerEnv) else 0.9
         self.playing = False
         self.speed = 1.0
         self.event_log: list[dict] = []
@@ -149,6 +152,7 @@ class WatchSession:
         return {
             "type": "state",
             "session_id": self.session_id,
+            "tick_seconds": self.tick_seconds,
             "game": self.game,
             "agent": self.agent_label,
             "opponent": self.opponent_label,
@@ -173,13 +177,24 @@ class WatchSession:
     def step_once(self) -> list[dict]:
         """Advance one action; returns the events to emit (1–3)."""
         render_before = self._render()
-        action = predict_action(self._agent_to_move(), self.env, self._obs)
+        joint_actions = None
+        if isinstance(self.env, SimultaneousTwoPlayerEnv):
+            joint_actions = predict_joint((self.agent, self.opponent or self.agent), self.env, self._obs)
+            action = joint_actions
+        else:
+            action = predict_action(self._agent_to_move(), self.env, self._obs)
         self._obs, reward, terminated, truncated, self._info = self.env.step(action)
+        if joint_actions is not None:
+            reward = reward[0]
         reward = float(reward)
         done = bool(terminated or truncated)
         self.step_in_episode += 1
         self.episode_return += reward
-        action, action_name = _action_label(self.game, action)
+        if joint_actions is not None:
+            action = int(joint_actions[0])
+            action_name = " · ".join(f"P{i + 1}: {_action_label(self.game, a)[1]}" for i, a in enumerate(joint_actions))
+        else:
+            action, action_name = _action_label(self.game, action)
 
         if self.game == "higher_or_lower":
             self._history.append(
@@ -201,6 +216,7 @@ class WatchSession:
                 "episode": self.episode,
                 "step_in_episode": self.step_in_episode,
                 "action": action,
+                **({"joint_actions": list(joint_actions), "tick_seconds": self.tick_seconds} if joint_actions is not None else {}),
                 "action_name": action_name,
                 "reward": reward,
                 "episode_return": self.episode_return,
@@ -234,9 +250,13 @@ class WatchSession:
         s = self.stats
         s["episodes_completed"] += 1
         s["total_return"] += self.episode_return
-        if self.episode_return > 0:
+        outcome = self.episode_return
+        if isinstance(self.env, SimultaneousTwoPlayerEnv):
+            winner = self._info.get("winner")
+            outcome = 0 if winner is None else (1 if winner == 0 else -1)
+        if outcome > 0:
             s["wins"] += 1
-        elif self.episode_return < 0:
+        elif outcome < 0:
             s["losses"] += 1
         else:
             s["pushes"] += 1
@@ -276,6 +296,7 @@ class SessionManager:
         agent. It is refused for single-agent games, where it would
         silently mean nothing.
         """
+        env_kwargs = {}
         if run_id is not None:
             run_dir = self._run_dir(run_id)
             summary_path = run_dir / "summary.json"
@@ -283,12 +304,13 @@ class SessionManager:
                 raise ValueError(f"Run {run_id!r} has no summary.json")
             summary = json.loads(summary_path.read_text())
             game = summary["config"]["game"]
+            env_kwargs = summary["config"].get("env_kwargs", {})
             ckpt = run_dir / f"{checkpoint}.zip"
             if not ckpt.exists():
                 raise ValueError(
                     f"Run {run_id!r} has no checkpoint {checkpoint}.zip"
                 )
-            agent_obj = resolve_agent(str(ckpt), game)
+            agent_obj = resolve_agent(str(ckpt), game, env_kwargs=env_kwargs)
             label = f"{run_id} · {checkpoint}"
         elif agent is not None:
             if game is None:
@@ -302,7 +324,21 @@ class SessionManager:
         opponent_label = None
         if game in TWO_PLAYER_GAMES:
             if opponent is not None:
-                opponent_obj = resolve_agent(opponent, game)
+                if opponent.startswith("run:"):
+                    _, opponent_run, opponent_checkpoint = opponent.split(":")
+                    if opponent_checkpoint not in ("best_model", "final_model"):
+                        raise ValueError("Unknown opponent checkpoint")
+                    opponent_dir = self._run_dir(opponent_run)
+                    summary_file = opponent_dir / "summary.json"
+                    if not summary_file.exists():
+                        raise ValueError("Opponent run has no summary.json")
+                    opponent_summary = json.loads(summary_file.read_text())
+                    if opponent_summary["config"]["game"] != game:
+                        raise ValueError("Opponent run must play the same game")
+                    opponent_obj = resolve_agent(str(opponent_dir / f"{opponent_checkpoint}.zip"), game,
+                                                 env_kwargs=env_kwargs)
+                else:
+                    opponent_obj = resolve_agent(opponent, game, env_kwargs=env_kwargs)
                 opponent_label = opponent
             else:
                 opponent_obj = agent_obj  # mirror match
@@ -320,6 +356,7 @@ class SessionManager:
             seed=seed,
             opponent=opponent_obj,
             opponent_label=opponent_label,
+            env_kwargs=env_kwargs,
         )
         session.event_log.append(session.state_event())
         with self._lock:

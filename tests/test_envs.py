@@ -7,6 +7,9 @@ from gymnasium.utils.env_checker import check_env
 
 from boardgame_ml.envs import GAMES as _GAME_REGISTRY
 from boardgame_ml.envs import make_env
+from boardgame_ml.envs.simultaneous import SimultaneousTwoPlayerEnv
+from boardgame_ml.training.self_play import SimultaneousSelfPlayWrapper
+from boardgame_ml.agents.baselines import get_baseline
 
 # Parameterized from the registry itself: a game added to GAMES gets
 # compliance tests automatically, with no second list to remember.
@@ -21,13 +24,18 @@ def _a_step_action(env):
     """One fixed, always-legal action for stepping in generic tests."""
     if _is_discrete(env):
         return env.valid_actions()[0]
+    if isinstance(env, SimultaneousTwoPlayerEnv):
+        return (1, 1)
     return np.zeros(env.action_space.shape, dtype=np.float32)
 
 
 @pytest.mark.parametrize("game", GAMES)
 def test_check_env(game):
     """The official Gymnasium checker must pass (contract compliance)."""
-    check_env(make_env(game))
+    env = make_env(game)
+    if isinstance(env, SimultaneousTwoPlayerEnv):
+        env = SimultaneousSelfPlayWrapper(env, fixed_opponent=get_baseline("pong_intercept", game))
+    check_env(env)
 
 
 @pytest.mark.parametrize("game", GAMES)

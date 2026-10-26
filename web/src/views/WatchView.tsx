@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, watchSocketURL } from "../api";
 import Board from "../components/Boards";
 import { store } from "../storage";
+import { nextReplayPosition } from "../replay";
 import type {
   BlackjackRender,
   ConnectFourRender,
@@ -25,6 +26,7 @@ function fmt(v: number): string {
 
 function feedLine(ev: WatchEvent): string {
   const head = `Ep ${ev.episode} · ${ev.action_name ?? ev.action}`;
+  if (ev.game === "pong") return `${head} (${fmt(ev.reward ?? 0)})`;
   if (ev.game === "higher_or_lower" && ev.render) {
     const r = ev.render as HolRender;
     const last = r.history[r.history.length - 1];
@@ -312,9 +314,9 @@ function ReplayWatch({ replay }: { replay: Replay }) {
           setPlaying(false);
           return p;
         }
-        return p + 1;
+        return nextReplayPosition(events, p);
       });
-    }, BASE_MS / speed);
+    }, ((events[0]?.tick_seconds ?? BASE_MS / 1000) * 1000) / speed);
     return () => clearInterval(t);
   }, [playing, speed, events.length]);
 
@@ -356,7 +358,7 @@ function ReplayWatch({ replay }: { replay: Replay }) {
             if (pos >= events.length) setPos(1);
             setPlaying(!playing);
           }}
-          onStep={() => setPos((p) => Math.min(events.length, p + 1))}
+          onStep={() => setPos((p) => nextReplayPosition(events, p))}
           speed={speed}
           onSpeed={setSpeed}
           onRestart={() => {
@@ -387,18 +389,20 @@ interface Props {
 }
 
 /** Games with two seats (mirrors the backend's TWO_PLAYER_GAMES). */
-const TWO_PLAYER_GAMES = new Set(["connect_four"]);
+const TWO_PLAYER_GAMES = new Set(["connect_four", "pong"]);
 
 /** Seat-1 picker for a two-player entry: mirror (same agent both
  * seats) or any of the game's baselines. ``value`` "" = mirror. */
 function OpponentSelect({
   game,
   games,
+  runs,
   value,
   onChange,
 }: {
   game: string;
   games: GameInfo[];
+  runs: RunEntry[];
   value: string;
   onChange: (v: string) => void;
 }) {
@@ -417,6 +421,7 @@ function OpponentSelect({
           vs {b.name}
         </option>
       ))}
+      {runs.filter((r) => r.game === game).flatMap((r) => r.checkpoints.filter((c) => c === "best_model.zip" || c === "final_model.zip").map((c) => <option key={`${r.run_id}:${c}`} value={`run:${r.run_id}:${c.replace(".zip", "")}`}>vs {r.run_id} · {c}</option>))}
     </select>
   );
 }
@@ -470,6 +475,7 @@ export default function WatchView({ target, onWatch }: Props) {
                       <OpponentSelect
                         game={r.game}
                         games={games}
+                        runs={runs}
                         value={opponents[`run:${r.run_id}`] ?? ""}
                         onChange={(v) =>
                           setOpponents((o) => ({
@@ -512,6 +518,7 @@ export default function WatchView({ target, onWatch }: Props) {
                     <OpponentSelect
                       game={g.name}
                       games={games}
+                      runs={runs}
                       value={opponents[`base:${g.name}:${b.name}`] ?? ""}
                       onChange={(v) =>
                         setOpponents((o) => ({

@@ -8,6 +8,7 @@ import type {
   Match3Render,
   RacingRender,
   RenderState,
+  PongRender,
 } from "../types";
 
 function cardLabel(v: number): string {
@@ -347,7 +348,30 @@ export function ConnectFourBoard({ render }: { render: ConnectFourRender }) {
   );
 }
 
+function PongBoard({ render: r }: { render: PongRender }) {
+  const colors = ["#58a6ff", "#ff9b70"];
+  const powerColors: Record<string, string> = { enlarge: "#7ee787", boost: "#d2a8ff", shield: "#ffd56a" };
+  return <div className="board pong-board">
+    <div className="pong-score"><span style={{ color: colors[0] }}>P1 · {r.scores[0]}</span><strong>{r.remaining.toFixed(1)}s</strong><span style={{ color: colors[1] }}>{r.scores[1]} · P2</span></div>
+    <svg viewBox={`0 0 ${r.width} ${r.height}`} role="img" aria-label="Two-player Powerup Pong arena">
+      <rect width={r.width} height={r.height} rx="12" fill="#0b1220" />
+      <path d={`M ${r.width / 2} 0 V ${r.height}`} stroke="#293850" strokeWidth="3" strokeDasharray="12 12" />
+      {r.paddles.map((p, i) => <g key={i}>
+        {p.effects[2] > 0 && <path d={`M ${i === 0 ? 8 : r.width - 8} 0 V ${r.height}`} stroke={powerColors.shield} strokeWidth="5" opacity=".75" />}
+        <rect x={p.x - p.width / 2} y={p.y - p.height / 2} width={p.width} height={p.height} rx="5" fill={p.effects[0] > 0 ? powerColors.enlarge : colors[i]} stroke={p.effects[1] > 0 ? powerColors.boost : "none"} strokeWidth="5" />
+      </g>)}
+      {r.pickup && <g><circle cx={r.pickup.x} cy={r.pickup.y} r={r.pickup.radius + 5} fill={powerColors[r.pickup.kind]} opacity=".25" /><text x={r.pickup.x} y={r.pickup.y + 6} textAnchor="middle" fontSize="22" fill={powerColors[r.pickup.kind]}>{r.pickup.kind[0].toUpperCase()}</text><title>{r.pickup.kind} pickup · {r.pickup.remaining.toFixed(1)}s</title></g>}
+      <circle cx={r.ball.x} cy={r.ball.y} r={r.ball.radius} fill="#f0f6fc" />
+      {r.serve_remaining > 0 && <text x={r.width / 2} y={r.height / 2 - 40} fill="#c9d1d9" textAnchor="middle" fontSize="25">Serve in {r.serve_remaining.toFixed(1)}s</text>}
+      {r.game_over && <text x={r.width / 2} y={r.height / 2 - 40} fill="#f0f6fc" textAnchor="middle" fontSize="30">{r.winner === null ? "Draw" : `Player ${r.winner + 1} wins`}</text>}
+    </svg>
+    <div className="pong-inventory">{r.paddles.map((p, i) => <div key={i} style={{ borderColor: colors[i] }}>P{i + 1}: <strong>{p.inventory}</strong><br />{["Enlarge", "Boost", "Shield"].map((name, j) => p.effects[j] > 0 ? <span key={name}>{name} {p.effects[j].toFixed(1)}s · </span> : null)}</div>)}</div>
+    <p className="hint">E: enlarge · B: boost next return · S: one-hit shield. Pickups go to the ball's last toucher. Each paddle accelerates under the same speed limit.</p>
+  </div>;
+}
+
 export default function Board({ render }: { render: RenderState }) {
+  if (render.game === "pong") return <PongBoard render={render as PongRender} />;
   if (render.game === "blackjack") {
     return <BlackjackBoard render={render as BlackjackRender} />;
   }

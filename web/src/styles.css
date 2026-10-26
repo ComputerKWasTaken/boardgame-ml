@@ -662,6 +662,7 @@ th {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.75rem;
   padding: 0.4rem 0;
   border-bottom: 1px solid var(--border);
@@ -799,4 +800,17 @@ th {
 
 .opponent-select {
   margin-right: 0.4rem;
+  width: 20rem;
+  max-width: 100%;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.3rem;
 }
+.picker-list li > span { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.pong-board { max-width: 1000px; }
+.pong-board svg { display: block; width: 100%; margin: 12px 0; }
+.pong-score, .pong-inventory { display: flex; justify-content: space-between; gap: 16px; }
+.pong-score { font-size: 1.35rem; font-variant-numeric: tabular-nums; }
+.pong-inventory > div { flex: 1; border-left: 3px solid; padding-left: 10px; min-height: 45px; }

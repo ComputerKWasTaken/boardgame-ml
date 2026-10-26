@@ -2,6 +2,11 @@
 
 The contract (see DESIGN.md, "Adding a new game"):
 
+Simultaneous two-player games are the exception to the single-agent API:
+their raw joint-action/observation spaces are Tuples and rewards are pairs.
+The protocol lives in ``envs.simultaneous``; its single-seat self-play
+adapter, rather than the raw game, implements the Gym/SB3 contract below.
+
 * A game is a :class:`gymnasium.Env`. Turn-based games use a
   ``Discrete`` action space; continuous-control games (M5's racing)
   use a ``Box`` — the contract's other rules are space-agnostic.

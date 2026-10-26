@@ -45,13 +45,14 @@ from boardgame_ml.agents.baselines import get_baseline
 from boardgame_ml.envs import TWO_PLAYER_GAMES, make_env
 from boardgame_ml.envs.base import validate_mask
 from boardgame_ml.envs.two_player import TwoPlayerEnv
+from boardgame_ml.envs.simultaneous import SimultaneousTwoPlayerEnv
 from boardgame_ml.training.algorithms import MODEL_CLASSES, ensure_mask_compatible
 from boardgame_ml.training.config import ExperimentConfig
 from boardgame_ml.training.diagnostics import DiagnosticsCallback
 from boardgame_ml.training.self_play import (
     OpponentPool,
     SelfPlayConfig,
-    SelfPlayWrapper,
+    self_play_wrapper,
     SnapshotCallback,
 )
 
@@ -122,14 +123,14 @@ def _maybe_wrap_self_play(
     if self_play_cfg is None:
         return env
     raw = env.unwrapped
-    if not isinstance(raw, TwoPlayerEnv):
+    if not isinstance(raw, (TwoPlayerEnv, SimultaneousTwoPlayerEnv)):
         raise ValueError(
             f"Config sets self_play for game {game!r}, which is not a "
             "two-player game; self-play settings apply only to "
             f"{sorted(TWO_PLAYER_GAMES)}"
         )
     if fixed_opponent is not None:
-        return SelfPlayWrapper(
+        return self_play_wrapper(
             env,
             fixed_opponent=fixed_opponent,
             fixed_opponent_kind=fixed_opponent_kind,
@@ -137,7 +138,7 @@ def _maybe_wrap_self_play(
     pool = OpponentPool(game, self_play_cfg, seed=seed)
     if pools is not None:
         pools.append(pool)
-    return SelfPlayWrapper(env, pool)
+    return self_play_wrapper(env, pool)
 
 
 def build_single_env(
@@ -235,7 +236,7 @@ def _build_eval_env(
     heuristic = get_baseline(self_play_cfg.heuristic, config.game)
 
     def _init() -> gym.Env:
-        env = SelfPlayWrapper(
+        env = self_play_wrapper(
             make_env(config.game, **config.env_kwargs),
             fixed_opponent=heuristic,
             fixed_opponent_kind="eval_heuristic",
@@ -279,6 +280,8 @@ def train(
             "not a two-player game; self-play settings apply only to "
             f"{sorted(TWO_PLAYER_GAMES)}"
         )
+    if config.game in TWO_PLAYER_GAMES and self_play_cfg is None:
+        raise ValueError("Two-player training requires a self_play configuration")
 
     run_dir = (
         Path(config.output_dir)

@@ -297,6 +297,7 @@ def test_meta_endpoint_exposes_effective_settings(tmp_path):
         "flappy",
         "racing",
         "connect_four",
+        "pong",
     }
     assert meta["default_algorithms"]["racing"] == "sac"
     sac = meta["pair_defaults"]["racing:sac"]

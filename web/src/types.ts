@@ -7,8 +7,8 @@ export interface GameAction {
 
 export interface BaselineRef {
   name: string;
-  mean_return: number;
-  win_rate: number;
+  mean_return: number | null;
+  win_rate: number | null;
   episodes: number;
 }
 
@@ -200,7 +200,24 @@ export interface ConnectFourRender {
   game_over: boolean;
 }
 
+export interface PongRender {
+  game: "pong";
+  text?: string;
+  width: number;
+  height: number;
+  ball: { x: number; y: number; radius: number };
+  paddles: { x: number; y: number; height: number; width: number; inventory: string; effects: number[] }[];
+  pickup: { kind: string; x: number; y: number; radius: number; remaining: number } | null;
+  scores: number[];
+  remaining: number;
+  serve_remaining: number;
+  winner: number | null;
+  game_over: boolean;
+  end_reason: string | null;
+}
+
 export type RenderState =
+  | PongRender
   | BlackjackRender
   | HolRender
   | Match3Render
@@ -228,6 +245,8 @@ export interface WatchEvent {
   step_in_episode?: number;
   action?: number | number[];
   action_name?: string;
+  joint_actions?: [number, number];
+  tick_seconds?: number;
   reward?: number;
   episode_return: number;
   steps?: number;

@@ -25,7 +25,6 @@ import asyncio
 import json
 import os
 from pathlib import Path
-from typing import Any
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
@@ -48,6 +47,11 @@ from boardgame_ml.web.jobs import (
 from boardgame_ml.web.sessions import SessionManager
 
 GAME_INFO: dict[str, dict[str, str]] = {
+    "pong": {
+        "display_name": "Powerup Pong",
+        "observation": "Ball and paddle positions/velocities, scores, inventories, effects, pickups and timers (public, seat-relative)",
+        "blurb": "Simultaneous two-player Pong. Accelerate bounded paddles; collect and activate enlarge, boost or shield. First to five or highest score after 90 seconds. +1 per point, −1 conceded. Baseline results depend on the opponent; use tournaments to measure strength.",
+    },
     "blackjack": {
         "display_name": "Blackjack",
         "observation": (
@@ -228,6 +232,9 @@ def create_app(runs_dir: str | Path = "runs") -> FastAPI:
 
     # -- games ---------------------------------------------------------
     def _baselines_for(game: str) -> list[dict]:
+        if game == "pong":
+            return [{"name": cls.name, "mean_return": None, "win_rate": None, "episodes": 0}
+                    for cls in BASELINES.values() if game in cls.games]
         if game not in baseline_cache:
             rows = []
             for cls in BASELINES.values():
@@ -435,9 +442,11 @@ def create_app(runs_dir: str | Path = "runs") -> FastAPI:
         async def player() -> None:
             while True:
                 if session.playing:
+                    started = asyncio.get_running_loop().time()
                     await send_events(session.step_once())
                     await asyncio.sleep(
-                        _BASE_STEP_SECONDS / max(session.speed, 0.05)
+                        max(0.0, session.tick_seconds / max(session.speed, 0.05)
+                            - (asyncio.get_running_loop().time() - started))
                     )
                 else:
                     await asyncio.sleep(0.05)

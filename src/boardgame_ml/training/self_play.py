@@ -69,6 +69,8 @@ import gymnasium as gym
 from stable_baselines3.common.callbacks import BaseCallback
 
 from boardgame_ml.envs.two_player import TwoPlayerEnv
+from boardgame_ml.envs.base import BaseGameEnv
+from boardgame_ml.envs.simultaneous import SimultaneousTwoPlayerEnv
 
 
 @dataclass
@@ -376,6 +378,62 @@ class SelfPlayWrapper(gym.Wrapper):
         return info
 
 
+class SimultaneousSelfPlayWrapper(BaseGameEnv):
+    """Gym single-seat adapter; each learner step advances one joint tick.
+
+    Unlike alternating self-play, nonterminal rewards are preserved.
+    The opponent decides from the cached pre-step observation.
+    """
+    def __init__(self, env, pool=None, *, fixed_opponent=None, fixed_opponent_kind="fixed"):
+        super().__init__()
+        if not isinstance(env, SimultaneousTwoPlayerEnv):
+            raise TypeError("Expected a simultaneous two-player game")
+        if pool is None and fixed_opponent is None:
+            raise ValueError("An opponent pool or fixed opponent is required")
+        self.env, self.pool = env, pool
+        self.action_space = env.single_action_space
+        self.observation_space = env.single_observation_space
+        self._fixed_opponent = fixed_opponent
+        self._fixed_opponent_kind = fixed_opponent_kind
+        self._seat_rng = np.random.default_rng()
+
+    def reset(self, *, seed=None, options=None):
+        super().reset(seed=seed)
+        if seed is not None:
+            self._seat_rng = np.random.default_rng(seed)
+        share = self.pool.config.second_seat_share if self.pool is not None else .5
+        self.learner_seat = int(self._seat_rng.random() < share)
+        if self._fixed_opponent is not None:
+            self.opponent_kind, self._opponent = self._fixed_opponent_kind, self._fixed_opponent
+        else:
+            self.opponent_kind, self._opponent = self.pool.sample_opponent()
+        self._observations, info = self.env.reset(seed=seed, options=options)
+        return self._observations[self.learner_seat], self._augment(info)
+
+    def step(self, action):
+        from boardgame_ml.eval.evaluate import predict_action
+        if not self.action_space.contains(action):
+            raise ValueError(f"Invalid learner action: {action!r}")
+        other = 1 - self.learner_seat
+        reply = predict_action(self._opponent, self.env.player_view(other), self._observations[other])
+        actions = [reply, reply]
+        actions[self.learner_seat] = int(action)
+        self._observations, rewards, terminated, truncated, info = self.env.step(tuple(actions))
+        return self._observations[self.learner_seat], float(rewards[self.learner_seat]), terminated, truncated, self._augment(info)
+
+    def _augment(self, info):
+        return dict(info, learner_seat=self.learner_seat, opponent=self.opponent_kind,
+                    action_mask=self.action_masks())
+
+    def close(self):
+        self.env.close()
+
+
+def self_play_wrapper(env, *args, **kwargs):
+    cls = SimultaneousSelfPlayWrapper if isinstance(env.unwrapped, SimultaneousTwoPlayerEnv) else SelfPlayWrapper
+    return cls(env, *args, **kwargs)
+
+
 class SnapshotCallback(BaseCallback):
     """Periodically freeze the learner into the opponent pool.
 
@@ -424,4 +482,6 @@ __all__ = [
     "SelfPlayConfig",
     "SelfPlayWrapper",
     "SnapshotCallback",
+    "SimultaneousSelfPlayWrapper",
+    "self_play_wrapper",
 ]

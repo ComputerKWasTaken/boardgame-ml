@@ -149,7 +149,24 @@ def _connect_four(env, info: dict, reveal: bool) -> dict:
     }
 
 
+def _pong(env, info: dict, reveal: bool) -> dict:
+    from boardgame_ml.envs.pong import POWER_NAMES
+    return {
+        "width": env.width, "height": env.height,
+        "ball": {"x": env.ball_x, "y": env.ball_y, "radius": env.ball_radius},
+        "paddles": [{"x": env.paddle_inset if i == 0 else env.width - env.paddle_inset,
+                     "y": env.paddle_y[i], "height": env.paddle_size(i), "width": env.paddle_width,
+                     "inventory": POWER_NAMES[env.inventory[i]], "effects": list(env.effects[i])} for i in (0, 1)],
+        "pickup": ({"kind": POWER_NAMES[env.pickup[0]], "x": env.pickup[1], "y": env.pickup[2],
+                    "radius": env.pickup_radius, "remaining": env.pickup[3]} if env.pickup else None),
+        "scores": list(env.scores), "remaining": max(0.0, env.match_seconds - env.elapsed),
+        "serve_remaining": env.serve_remaining, "winner": env.winner,
+        "game_over": env.done, "end_reason": env.end_reason,
+    }
+
+
 _BUILDERS = {
+    "pong": _pong,
     "blackjack": _blackjack,
     "higher_or_lower": _higher_or_lower,
     "match3": _match3,
