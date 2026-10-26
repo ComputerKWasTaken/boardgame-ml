@@ -224,6 +224,29 @@ the M8 results below carry the tables.
   nets — the latter reproduces the collapse bit-for-bit)
   are recorded as refutations.
 
+## Milestone 9 — Cross-family transfer (did it learn driving, or the family?)
+
+M7's generalist aced an exam from its *own* generator family.
+M9 asks the harder question with a second family:
+
+* **Generator v3** (`generate_track_v3`) — segment-built
+  circuits in the style of real track design: straights joined
+  by constant-radius arcs, heading closed by construction
+  (turn angles sum to +2π) and position closed by an exact
+  linear solve on two straight lengths. Same validity gates
+  as v2 (min radius ≥ 13 m, no self-intersection, branch
+  separation) — different character, not impossible: over 200
+  seeds, lengths 259–902 m (median 493, vs v2's 358) and a
+  median **52% of the centerline exactly straight**, where
+  v2's splines are curved everywhere.
+* **The zero-shot transfer exam** — all five M7 agents, cold,
+  on five held-out v3 circuits, seeds **60001–60005**,
+  20 episodes each. (Tables in the M9 results below.)
+* **The 2×2** — the F2 generalist's 62% triggered the full
+  matrix: a generalist SAC trained on the v3 distribution
+  (same recipe; training range 70000–70999), then both
+  generalists sat both families' exams.
+
 
 
 ```bash
@@ -713,6 +736,78 @@ rather than SAC's speed. M7's "PPO never became robust" was
 substantially a verdict on the broken recipe; SAC remains
 the better racing driver (robust *and* fast), and the
 fixed PPO's full-budget pace is the open question.
+
+## M9 results — Cross-family transfer
+
+**Generator v3, measured over 200 fresh seeds:** 200/200
+accepted by the same validity gates as v2, mean 9.1 attempts
+per seed (~100 ms per track; the closure solve and structural
+gates reject more candidates than v2's repair-first path).
+Lengths 259–902 m (median 493), tightest-corner radius
+14.5–38.2 m (median 16.8), 1–10 corners (median 5), and a
+median 52% of centerline samples on exactly-straight
+elements (circumradius > 200 m) — against v2's ~6%. The v1
+seed-7 track remains frozen and golden-hash tested.
+
+**The zero-shot exam** — exam seeds **60001–60005**
+(published; disjoint from the v3 training range 70000–70999
+and from every v2 range), 20 episodes per track. The same
+agents' M7 (F2) exam scores alongside:
+
+| agent | F2 progress | F2 lap rate | F3 progress | F3 lap rate | F3 crash rate | F3 laps/ep | F3 mean lap |
+|---|---|---|---|---|---|---|---|
+| Generalist SAC (F2-trained) | 100% | 100% | 81.9% | **62%** | 40% | 2.62 | 19.0 s |
+| Specialist SAC (seed-7) | 91.0% | 81% | 22.5% | **0%** | 100% | 0.00 | — |
+| Specialist PPO (seed-7) | 81.9% | 45% | 24.8% | **0%** | 100% | 0.00 | — |
+| Generalist PPO (F2-trained) | 70.5% | 26% | 36.7% | **0%** | 100% | 0.00 | — |
+| Heuristic (control) | 100% | 100% | 100% | **100%** | 0% | 1.60 | 43.3 s |
+
+The F2 generalist's failures are concentrated, not diffuse:
+100/100 on exam tracks 60003–60005, but 58% progress / 5%
+laps on 60001 (774 m, min radius 14.6 m) and 52% / 5% on
+60002 (680 m, 16.3 m) — the two longest, tightest circuits,
+whose long straights feed hairpins at full speed.
+
+**The 2×2** — a generalist SAC trained on the v3
+distribution, both generalists on both exams (lap rate;
+progress in parentheses):
+
+| trained ↓ / exam → | F2 exam (50001–50005) | F3 exam (60001–60005) |
+|---|---|---|
+| F2 generalist SAC (M7) | 100% (100%) | 62% (81.9%) |
+| F3 generalist SAC (M9) | **100% (100%)** | 63% (83.5%) |
+
+The F3 generalist laps the *other* family's exam in every
+episode without a crash (5.80 laps/ep, 14.8 s mean lap) —
+and on its own family's exam it matches, not beats, the
+F2 generalist (63% vs 62%), failing on the same two
+circuits (59%/5% and 58%/10% per track). Home-family
+training bought nothing measurable on the hard paper.
+
+**Training:** F3 generalist SAC — attempt 1 (150k budget)
+killed by a VM restart at ~16k steps; attempt 2 (100k
+budget) killed by a second restart at 44,446 steps. The
+shipped artifact is attempt 2's best-by-eval checkpoint
+(40k steps; eval return 2,232.8 over 20 fresh v3 circuits;
+curve 122.8 → 956.4 → 1,877.8 → 2,232.8, still rising
+slowly), per the framework's checkpoint doctrine.
+
+**Verdict.** Both, in layers. The specialists learned a
+*track* (M7's verdict) and, it turns out, a *family's*
+worth of habits at most — nothing they know survives a
+change of construction recipe (0% laps). The generalists
+learned **driving**: distribution training in either family
+produces a driver who aces the other family's exam and
+keeps ~62–63% on the harder F3 paper sight unseen. And the
+F3 exam's two long, tight circuits are a wall for *every*
+learned agent regardless of home family — while the
+family-less heuristic laps them slowly — which says the
+remaining gap is speed management at the
+straight-into-hairpin combination, not family familiarity.
+Scope note: "cross-family" here means two circuit
+generators (splines vs segments) behind the same gates, car
+and observation; open roads, width variation and traffic
+remain untested by design.
 
 ## Post-M1 hardening
 

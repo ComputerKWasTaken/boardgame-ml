@@ -907,6 +907,128 @@ survival. Full-budget pace is the open question, and the
 M7 ranking (SAC the better racing driver) stands — SAC
 remains both robust *and* fast, with no dip on record.
 
+## Cross-family transfer (M9) — driving, or the family?
+
+M7's verdict carried a scope note: its exam circuits were held
+out but not *foreign* — one generator family (star-shaped
+control polygons through a Catmull-Rom spline) wrote both the
+training distribution and the exam paper. Nothing in that setup
+can separate "learned to drive" from "learned the spline
+recipe's habits". M9 builds the foreign paper.
+
+**Generator v3** (`generate_track_v3`, selected by
+`track_version=3`) constructs circuits the way real tracks are
+drawn: as **elements** — straights joined by constant-radius
+arcs. A candidate draws 5–10 corners (signed turn angles, ~1 in
+5 reversed for S-curves, uniformly shifted so they sum to
+exactly +2π; radii from a hairpin/sweeper mixture at 14.5–58 m;
+straight lengths 14–62 m). The heading therefore closes by
+construction, and the *position* closes by an exact solve: two
+straight lengths are left as unknowns in the 2×2 system
+`Σ element displacements = 0`, tried best-conditioned first —
+the sampled loop closes to ~1e-13 m. The legality contract is
+v2's, unchanged — the same `track_violations` gates (min
+circumradius ≥ 13 m against the grip cap, no self-intersection,
+branch separation) — so the family is different in character,
+not impossible. Measured over 200 fresh seeds each:
+
+| batch stat (200 seeds) | v2 (splines) | v3 (segments) |
+|---|---|---|
+| accepted | 200/200, mean 3.1 attempts | 200/200, mean 9.1 attempts |
+| length | 216–528 m, median 358 | 259–902 m, median 493 |
+| min turn radius | 13.6–29.0 m, median 18.6 | 14.5–38.2 m, median 16.8 |
+| corners (r < 40 m) | 1–12, median 6 | 1–10, median 5 |
+| samples on straights (r > 200 m) | median ~6% | **median 52%** |
+
+The last row is the family's signature: v3's curvature profile
+is a step function (exactly zero on straights, exactly 1/R on
+arcs); v2's varies continuously and is never zero. v3's
+circuits also run ~40% longer — straights stretch them — and
+they deal a combination v2 rarely does: a long full-speed
+straight feeding a 15 m hairpin, with a distinct braking zone.
+
+**The zero-shot exam.** M7's five agents, cold, on five
+held-out v3 circuits (seeds **60001–60005**, in no training
+range; 20 episodes each, the M7 harness's conventions). The
+F2 generalist's lap rate fell from 100% to **62%**, its crashes
+concentrated on the two longest, tightest exam circuits
+(60001: 774 m, min radius 14.6 m — 5% laps; 60002: 680 m,
+16.3 m — 5%), while lapping the other three in every episode.
+Both specialists and the generalist PPO scored **0% laps with
+100% crash rates**. (That PPO is M7's shipped checkpoint; the
+M8 autopsy above later showed what its family's failure was
+made of — the zero-shot table here grades the artifacts M7
+actually shipped.) The heuristic — which has no family to
+learn — stayed at 100%/0% on both papers. A failure census of
+the F2 generalist on the two hard circuits shows crashes
+spread across the whole lap (progress at death from 8% to
+100%), not one killer corner: repeated exposure to the hard
+combination, not a single trap.
+
+**Completing the 2×2.** The gap being large, a generalist SAC
+was trained on the v3 distribution (the M7 SAC recipe
+unchanged; training range [70000, 71000)) and both generalists
+sat both exams:
+
+| SAC generalist | F2 exam (laps) | F3 exam (laps) |
+|---|---|---|
+| trained on F2 (M7) | **100%** | 62% |
+| trained on F3 (M9) | **100%** | 63% |
+
+Three readings, in increasing order of importance:
+
+1. **The skill transfers.** An agent trained only on
+   straights-and-arcs laps the spline family's exam in 100% of
+   episodes without a crash (5.80 laps/ep at 14.8 s, against
+   the home agent's 6.20 at 13.4 s — a touch more cautious,
+   flawless), and the F2 generalist keeps 62% on the foreign
+   paper. That is not what "learned the family" predicts; the
+   specialists show what family-bound actually looks like
+   (0% laps, progress down ~60–70 points from their F2 exam).
+2. **The F3 exam is the harder paper — for everyone.** Both
+   generalists stall at ~62–63% on it, failing on the same
+   two circuits; home-family training bought the F3
+   generalist *nothing measurable* on its own exam over the
+   F2 generalist (63% vs 62% laps, 83.5% vs 81.9% progress).
+   The residual failures live at the full-speed-straight →
+   hairpin combination both families' graduates meet as
+   strangers, and the heuristic laps those circuits at half
+   the learned agents' speed — they are drivable slowly, so
+   the learned failures are speed-management failures, a
+   property of the observation/physics package more than of
+   either family's familiarity.
+3. **Specialization is the specialists' disease.** The
+   seed-7 drivers' zero-shot progress fell from 91%/82%
+   (F2 exam) to 23%/25% (F3 exam): what one track teaches
+   does not survive a change of construction recipe at all.
+   Distribution training — in *either* family — is what
+   bought transferable skill.
+
+**The F3 training run, honestly.** It took three attempts'
+worth of patience: the first (150k budget) was killed by a VM
+restart at ~16k steps; the second (100k budget) reached
+44,446 steps before a second restart killed it. The shipped
+checkpoint is the second attempt's best-by-eval — the 40k
+checkpoint, eval return 2,232.8 over 20 fresh v3 circuits
+(curve: 122.8 → 956.4 → 1,877.8 → 2,232.8 — still rising,
+decelerating), per the framework's best-by-eval doctrine;
+the first attempt's run directory is preserved with a
+`_dead16k` suffix, in the M7 style. A fully-plateaued F3 agent might squeeze more
+from the two hard circuits — but the fully-mature F2
+generalist scored the same 62% there, so undertraining is
+not the obvious explanation for the wall.
+
+**Scope, stated plainly.** Two families are not all families:
+both generators still produce closed, constant-width, flat
+circuits behind the same gates, driven by the same car
+through the same ray-fan observation. What M9 establishes is
+narrower and stronger than a slogan — the learned skill is
+not an artifact of the spline recipe; it survives a change of
+construction method, curvature profile, and length scale.
+What it does not test: open roads, varying width, elevation,
+traffic — the dimensions along which "driving in general"
+would next be falsified.
+
 
 * More games behind the same contract (the real test of modularity)
   — Match 3 landed in M3 (see above); Flappy Bird landed in M4 as
