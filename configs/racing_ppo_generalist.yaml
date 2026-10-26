@@ -4,10 +4,13 @@
 # horizon, 8 envs, [256,256] nets) at its shipped 600k-step budget.
 #
 # The comparison this buys: does on-policy learning generalize
-# across circuits the way off-policy SAC does — and does the M5
-# peak-then-collapse dynamic survive contact with a moving target
-# (a fresh track every episode)? The run's product is the
-# best-by-eval checkpoint, as with every PPO racing run here.
+# across circuits the way off-policy SAC does? (M7's answer was
+# no — 26% exam laps to SAC's 100% — under the pre-M8 recipe
+# whose exploration std was 1.0; M8 showed that recipe's
+# deterministic artifacts were unsound even on one track, so the
+# M7 PPO generalist number grades a broken artifact as much as
+# an algorithm. This config now carries the M8 fix,
+# log_std_init -1.0, like the specialist's.)
 #
 # The training range [10000, 11000) and the held-out exam set
 # (50001-50005, eval/racing_exam.py) match the SAC generalist's
@@ -30,6 +33,8 @@ env_kwargs:
   track_seed_hi: 11000
 policy_kwargs:
   net_arch: [256, 256]
+  # M8 collapse fix — see racing_ppo.yaml's header / DESIGN.md M8.
+  log_std_init: -1.0
 hyperparams:
   n_steps: 256
   batch_size: 1024

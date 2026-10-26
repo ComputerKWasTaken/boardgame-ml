@@ -7,18 +7,32 @@
 # default — training, eval, and the baselines all face this track;
 # episode seeds randomize only the spawn point on it.
 #
-# Hyperparameter notes (measured, see DESIGN.md's M5 section):
+# Hyperparameter notes (measured, see DESIGN.md's M5 + M8 sections):
 # gamma 0.995 + gae_lambda 0.98 are what make braking learnable at
 # all — at gamma 0.99 the braking decision's payoff lands outside
 # the effective horizon and the policy converges to full-throttle-
 # and-crash (eval returns stuck at ~140 through 150k steps). At
 # 0.995 the policy learns to lap within ~50-100k steps (eval peaks
-# ~2900, laps ~11.6 s vs the heuristic's 23.4 s) — and then PPO
-# destabilizes under the large return scale and collapses back to
-# the crash attractor. The run's product is therefore the
-# best-by-eval checkpoint, which is exactly the framework's
-# checkpoint-selection design; eval_freq is set dense (25k) so the
-# peak window is caught finely.
+# ~2900, laps ~11.6 s vs the heuristic's 23.4 s).
+#
+# log_std_init -1.0 (action std 0.37, not SB3's default 1.0) is
+# the M8 collapse fix. The autopsy (DESIGN.md, M8) found the
+# peak-and-collapse was never a value-scale failure: with std 1.0
+# the *sampled* policy — the one PPO actually optimizes — is a
+# crash machine (20/20 crashes at the deterministic peak), the
+# deterministic mean is an unmonitored side effect that peaks by
+# transience and then rots, and log_std itself receives almost
+# no gradient (it moved 1.000 -> 0.997 in 600k steps), so the
+# initial std is effectively the run's permanent exploration
+# noise. At std 0.37 the sampled and deterministic policies stay
+# coupled: the 600k verification run climbs to a 2858 peak whose
+# final model scores 2586 (90% of peak, laps in every eval
+# episode) — no best-checkpoint rescue needed. It does visit
+# the crash attractor once, briefly, at ~475k steps, and
+# recovers to a new peak within 50k — at std 1.0 the same visit
+# is permanent (475k steps and counting). Value-side probes
+# (vf_coef 0.05; separate pi/vf nets) reproduced the collapse
+# bit-for-bit and are recorded as refutations in DESIGN.md.
 game: racing
 algorithm: ppo
 total_timesteps: 600000
@@ -33,6 +47,8 @@ env_kwargs:
   track_seed: 7
 policy_kwargs:
   net_arch: [256, 256]
+  # M8 collapse fix — see racing_ppo.yaml's header / DESIGN.md M8.
+  log_std_init: -1.0
 hyperparams:
   n_steps: 256
   batch_size: 1024

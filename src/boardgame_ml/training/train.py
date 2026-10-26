@@ -13,8 +13,10 @@ What a run does:
 3. Periodically evaluates the deterministic policy on the eval env and
    keeps the **best-by-eval** checkpoint (``best_model.zip``) — never a
    "best" picked from noisy, exploration-contaminated training returns.
-4. Logs every training episode return to ``train_log.csv`` and writes a
-   ``summary.json`` (full config + best eval score) into the run dir.
+4. Logs every training episode return to ``train_log.csv``, SB3's
+   own logger diagnostics to ``diagnostics.csv`` (see
+   ``training/diagnostics.py``), and writes a ``summary.json``
+   (full config + best eval score) into the run dir.
 """
 
 from __future__ import annotations
@@ -45,6 +47,7 @@ from boardgame_ml.envs.base import validate_mask
 from boardgame_ml.envs.two_player import TwoPlayerEnv
 from boardgame_ml.training.algorithms import MODEL_CLASSES, ensure_mask_compatible
 from boardgame_ml.training.config import ExperimentConfig
+from boardgame_ml.training.diagnostics import DiagnosticsCallback
 from boardgame_ml.training.self_play import (
     OpponentPool,
     SelfPlayConfig,
@@ -319,7 +322,11 @@ def train(
         verbose=0,
     )
     logger = EpisodeReturnLogger(run_dir / "train_log.csv")
-    callbacks: list[BaseCallback] = [eval_callback, logger]
+    # Diagnostics (M8): SB3's logger values (value loss, explained
+    # variance, KL, clip fraction, ...) plus policy std / update size,
+    # kept in diagnostics.csv — see training/diagnostics.py for why.
+    diagnostics = DiagnosticsCallback(run_dir / "diagnostics.csv")
+    callbacks: list[BaseCallback] = [eval_callback, logger, diagnostics]
     if self_play_cfg is not None:
         callbacks.append(SnapshotCallback(pools, run_dir, self_play_cfg))
     callbacks.extend(extra_callbacks or [])

@@ -1,0 +1,50 @@
+# Racing GENERALIST with SAC (M9) — the M7 generalist recipe,
+# retrained on the *other* track family: generator v3
+# (segment-built circuits: straights + constant-radius arcs).
+#
+# The question (DESIGN.md, M9): the M7 generalist SAC aced its
+# own family's exam (100% laps) but dropped to 62% laps zero-shot
+# on held-out v3 circuits, and both M5 specialists scored 0%.
+# This run completes the 2x2: same SAC recipe, same budget
+# discipline, the v3 distribution as the world — then both
+# generalists sit both families' exams.
+#
+# * env_kwargs: track_version 3, per-episode re-roll over the
+#   training range [70000, 71000). The F3 exam set (60001-60005)
+#   is outside that range and appears in no training run; the
+#   F2 exam set (50001-50005) and F2 training range are v2 seeds
+#   and never enter this run either.
+# * total_timesteps 100000 (cut from a first attempt's 150000
+#   after that run was killed by a VM restart at ~16k steps —
+#   the same fate as M7's generalist at ~170k): the M7
+#   generalist's eval curve plateaued by ~30-70k steps of this
+#   recipe, so 100k covers the plateau with margin, and
+#   best-by-eval harvesting means even a second mid-run death
+#   leaves a usable artifact.
+# * eval_episodes 20, as in M7: a random-track eval mean is
+#   noisier than a fixed-track one, and best-by-eval reads it.
+game: racing
+algorithm: sac
+total_timesteps: 100000
+seed: 0
+n_envs: 1
+learning_rate: 0.0003
+gamma: 0.995
+eval_episodes: 20
+eval_freq: 10000
+output_dir: runs
+env_kwargs:
+  track_version: 3
+  randomize_track: true
+  track_seed_lo: 70000
+  track_seed_hi: 71000
+policy_kwargs:
+  net_arch: [256, 256]
+hyperparams:
+  buffer_size: 300000
+  batch_size: 256
+  tau: 0.005
+  ent_coef: auto
+  learning_starts: 5000
+  train_freq: 1
+  gradient_steps: 1

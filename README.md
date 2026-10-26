@@ -187,6 +187,43 @@ have never seen, and an exam to grade everyone fairly.
   exam set**: seeds **50001–50005**, 20 episodes per track, the
   heuristic riding along as the track-agnostic control.
 
+## Milestone 8 — PPO collapse autopsy (the mean is not the policy)
+
+M5's open weakness — racing PPO peaks at 75k steps, then rots
+into the crash attractor while SAC holds its plateau — gets a
+root cause, and it is not the one on file. The suspected
+mechanism (return scale in the thousands swamping the value
+loss) is **refuted**; the actual one is an exploration-noise
+divergence between the policy PPO trains and the artifact
+the framework ships. Full evidence in DESIGN.md's M8 section;
+the M8 results below carry the tables.
+
+* **Diagnostics first** — every run now writes
+  `diagnostics.csv`: SB3's logger values (value loss,
+  explained variance, approx KL, clip fraction, entropy)
+  captured through a logger output format, plus policy std,
+  per-rollout parameter-change norm and LR from a callback
+  (`training/diagnostics.py`). M5's collapse was visible only
+  as an eval curve because these values were being computed
+  and discarded; they aren't, anymore.
+* **Exact reproduction** — the shipped M5 recipe re-run under
+  instrumentation lands on the original's best eval to the
+  last digit (2971.3858907999997), peak, cliff and rot
+  included.
+* **The finding** — at the deterministic peak, the *sampled*
+  policy (the one PPO optimizes) crashes in 20/20 episodes
+  (return 131); by 600k the sampled policy has improved
+  tenfold (1499) while the deterministic mean has rotted to
+  148. SB3's Gaussian std starts at 1.0 — half the [−1, 1]
+  action box, at 20 Hz — and receives almost no gradient
+  (1.000 → 0.997 in 600k steps), so the shipped "driver" was
+  the mean of a distribution whose samples couldn't drive.
+* **The fix** — `log_std_init: -1.0` (std ≈ 0.37) in the
+  racing PPO configs + cockpit defaults, parity-tested as
+  usual. Value-side probes (`vf_coef` 0.05; separate pi/vf
+  nets — the latter reproduces the collapse bit-for-bit)
+  are recorded as refutations.
+
 
 
 ```bash
@@ -606,6 +643,76 @@ the exam's hardest circuit for both specialists is routine
 for it. Scope note: "driving" is proven within the generator
 family (star-shaped circuits); cross-family transfer is
 untested by design.
+
+## M8 results — PPO collapse autopsy (racing, seed-7 track)
+
+**Reproduction.** The shipped M5 recipe, re-run: best eval
+**2971.4 @ 75k steps — identical to M5's original to full
+float precision** — cliff to 531 @ 125k, then rot: 321, 209,
+204, 185, 194, 172, 163, 168, 150, 155, 162, 163, 153, 158,
+157, 150, 147, **135 @ 600k** (M5's final artifact: 146.1).
+Meanwhile the run's *training* return climbs monotonically
+the whole way (~29 → ~1200+): the two curves are grading
+different policies.
+
+**Mean vs sampled** (the reproduced run's own checkpoints,
+20 episodes each, deterministic = the shipped artifact,
+stochastic = the policy PPO actually optimized):
+
+| checkpoint | deterministic | stochastic |
+|---|---|---|
+| best (75k) | 2972 · 140 laps · 0/20 crashes | 131 · 2 laps · **20/20 crashes** |
+| final (600k) | 148 · 0 laps · 20/20 crashes | 1499 · 66 laps · 14/20 crashes |
+
+**Diagnostics at the scene** (all 600k steps): policy std
+1.000 → 0.997 (never anneals; entropy pinned at the std-1.0
+value); approx-KL ≈ 0.0001 and clip fraction ≈ 0 per update;
+explained variance ≈ 0.0–0.15 (the value function never fits
+— in *any* run, healthy ones included); value loss grows
+42 → ~1450 tracking the return scale.
+
+**Probes** (one variable changed per run, 300k steps):
+
+| probe | result |
+|---|---|
+| `vf_coef` 0.5 → 0.05 | deterministic eval flat ~140–210 for all 300k steps — no peak forms; value weight **refuted** |
+| separate pi/vf nets | eval curve **bit-identical to baseline at all 12 points**, collapse included — shared-trunk interference **refuted** |
+| `log_std_init` −1.0 (std 0.37) | monotonic climb 1000 → 2183; **peak == final**; no cliff — **causal** |
+
+**Verification** (fixed recipe, full 600k steps): a
+monotone-in-spirit climb — 1000, 1237, 1360, 1476, 1641,
+1676, 1792, 1890, 2077, 2027, 2054, 2183, 2203, 2434, 2188,
+2504, 2463, 2441 — peak **2858 @ 550k**, **final 2586 @
+600k = 90% of peak**, every final-eval episode completing
+multiple laps (min 2582). One disclosed blemish: a transient
+visit to the crash attractor at 475–500k (311, 176) between
+the 2441 plateau and the recovery (2663 @ 525k, new peak @
+550k) — the baseline's cliff, deferred ~350k steps and, for
+the first time, *recovered from*: at std 1.0 the attractor
+is absorbing, at 0.37 the trained policy stays coupled
+enough to climb out. PPO racing no longer needs the
+best-checkpoint rescue; best and final are the same species
+of driver.
+
+**Generalist probe** (fixed recipe on the M7 track
+distribution; probe run killed by a VM restart at ~174k of
+300k steps, exam sat by its 150k best-by-eval checkpoint —
+a quarter of M7's budget): random-circuit training eval
+1659 @ 150k, vs the broken recipe's best of 645 across its
+whole 600k run. On the M7 exam paper:
+
+| agent (exam) | progress | lap rate | crash rate | laps/ep | mean lap |
+|---|---|---|---|---|---|
+| Generalist PPO, M8 fix (probe, 150k ckpt) | **100%** | **100%** | **0%** | 3.60 | 22.4 s |
+| Generalist PPO, M7 (broken recipe, 600k) | 70.5% | 26% | 89% | 0.88 | 13.2 s |
+| Generalist SAC, M7 (reference) | 100% | 100% | 0% | 6.20 | 13.4 s |
+
+The fixed PPO generalist matches SAC's perfect robustness
+line on every track — at a cautious, near-heuristic pace
+rather than SAC's speed. M7's "PPO never became robust" was
+substantially a verdict on the broken recipe; SAC remains
+the better racing driver (robust *and* fast), and the
+fixed PPO's full-budget pace is the open question.
 
 ## Post-M1 hardening
 

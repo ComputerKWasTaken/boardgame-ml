@@ -215,10 +215,17 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--track-seeds",
         default=",".join(str(s) for s in EXAM_TRACK_SEEDS),
-        help="Comma-separated generator-v2 track seeds (the exam paper).",
+        help="Comma-separated generator track seeds (the exam paper).",
     )
     parser.add_argument("--episodes", type=int, default=20)
     parser.add_argument("--seed-base", type=int, default=EXAM_EPISODE_SEED_BASE)
+    parser.add_argument(
+        "--track-version",
+        type=int,
+        default=2,
+        help="Track generator family to examine on (2 = the M7 exam; "
+        "3 = the M9 cross-family exam).",
+    )
     parser.add_argument(
         "--json-out", default=None, help="Also write the full result tree here."
     )
@@ -229,6 +236,7 @@ def main(argv: list[str] | None = None) -> None:
         [int(s) for s in args.track_seeds.split(",") if s.strip()],
         episodes_per_track=args.episodes,
         seed_base=args.seed_base,
+        track_version=args.track_version,
     )
     print(format_report(result))
     if args.json_out:

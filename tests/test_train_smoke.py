@@ -105,7 +105,53 @@ def test_train_racing_ppo_smoke(tmp_path):
     assert summary_file["best_eval_mean_return"] is not None
 
 
-def test_train_racing_sac_smoke(tmp_path):
+def test_train_writes_diagnostics(tmp_path):
+    """M8: every run keeps SB3's logger diagnostics on disk.
+
+    Before this, value loss / explained variance / KL / clip
+    fraction were dumped into the void (verbose=0, no output
+    format), which is why racing PPO's collapse could be seen on
+    the eval curve but never explained from artifacts. A tiny
+    racing PPO run (Gaussian policy, so the callback-computed
+    diag/* rows exist too) must leave a parseable diagnostics.csv
+    carrying both channels."""
+    import csv
+
+    # Budget note: 2 envs x 2048 steps each guarantees every env
+    # completes at least one episode (racing truncates at 1800),
+    # so rollout/ep_rew_mean is always logged — at 1024 steps
+    # whether an episode ends inside the run is trajectory luck.
+    cfg = ExperimentConfig(
+        game="racing",
+        algorithm="ppo",
+        total_timesteps=4096,
+        n_envs=2,
+        eval_freq=2048,
+        eval_episodes=2,
+        seed=3,
+        output_dir=str(tmp_path),
+        hyperparams={"n_steps": 256, "batch_size": 128, "n_epochs": 1},
+    )
+    summary = train(cfg)
+    run_dir = Path(summary["run_dir"])
+    path = run_dir / "diagnostics.csv"
+    assert path.exists()
+    with path.open(newline="") as fh:
+        rows = list(csv.reader(fh))
+    assert rows[0] == ["step", "key", "value"]
+    keys = set()
+    for step, key, value in rows[1:]:
+        int(step)  # every row carries a numeric step...
+        float(value)  # ...and a numeric value
+        keys.add(key)
+    # SB3 logger channel (via the KVWriter format) ...
+    assert "train/value_loss" in keys
+    assert "train/approx_kl" in keys
+    assert "rollout/ep_rew_mean" in keys
+    # ... and the callback-computed channel (SB3 logs none of these).
+    assert "diag/policy_std" in keys
+    assert "diag/param_delta" in keys
+    assert "diag/learning_rate" in keys
     """SAC — registered in M5 as the sample-efficient continuous-
     control alternative — constructs and trains on the Box game
     through the same pipeline (a few hundred steps only: this pins

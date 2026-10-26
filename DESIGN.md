@@ -735,6 +735,178 @@ family* — genuinely unseen layouts, lengths and corner
 sequences, but not cross-family transfer (no figure-eights,
 no open roads), which the gates deliberately exclude.
 
+## PPO collapse autopsy (M8) — the mean is not the policy
+
+M5 left an open weakness: racing PPO peaks at ~75k steps and
+then degrades into the crash attractor, and the framework
+shipped the rescued peak. M7 inherited the question (its
+generalist PPO failed worse). The standing suspicion, recorded
+in M5, was *return-scale value chase*: returns in the
+thousands, a value loss to match, swamping the policy. M8
+reproduced the collapse under instrumentation, tested the
+suspects one variable at a time, and found the suspicion
+**wrong**. The mechanism is stranger and more useful.
+
+**Reproduction.** The shipped M5 recipe, re-run with the new
+diagnostics capture, reproduced the original run *exactly*:
+best eval 2971.3858907999997 in both (same seed, same
+versions — the pipeline is deterministic), peak at 75k steps,
+cliff to 531 at 125k, slow rot to 135 by 600k (M5's final:
+146.1). Every run also now writes `diagnostics.csv` (SB3's
+logger values via a KVWriter format, plus policy std /
+update size / LR from a callback — `training/diagnostics.py`);
+before M8 those values were dumped into the void, which is
+why this section couldn't have been written from M5's
+artifacts.
+
+**The divergence.** The diagnostics show two policies living
+in one checkpoint. The *training* return (stochastic policy,
+`rollout/ep_rew_mean`) climbs monotonically for all 600k steps
+(29 → ~1200+) — training never stops "working". The
+*deterministic* policy — the mean action, the thing
+`EvalCallback` grades and the framework ships — is what peaks
+and rots. Measured directly on the reproduced run's own
+checkpoints (20 episodes each, seed-7 track):
+
+| checkpoint | deterministic (mean) | stochastic (sampled) |
+|---|---|---|
+| best (75k) | 2972, 140 laps, 0/20 crashes | 131, 2 laps, **20/20 crashes** |
+| final (600k) | 148, 0 laps, 20/20 crashes | 1499, 66 laps, 14/20 crashes |
+
+At the celebrated peak, the policy PPO was actually training
+could not finish a single episode; the shipped artifact was
+the *mean* of that distribution, a driver nobody optimized.
+By 600k the two have traded places: training genuinely
+improved the sampled policy tenfold (131 → 1499) while the
+mean rotted to the crash attractor. The "collapse" is the
+moment the mean — drifting under gradients computed for a
+different, noise-dominated objective — walks off the precise
+line it had transiently occupied.
+
+**Why the mean is unmoored: the exploration std is a frozen
+constant.** SB3's Gaussian policy starts at `log_std_init`
+(default 0 → std 1.0 on a [−1, 1] action box, at 20 decisions
+a second) — and in this regime log_std receives essentially
+no gradient: across 600k steps it moved 1.000 → 0.997
+(entropy loss pinned at the std-1.0 value, −2.837, the whole
+run). The initial std is therefore not a starting point but
+the run's *permanent* exploration noise, and at 1.0 it is
+half the entire control authority injected as jitter every
+50 ms. Consequences cascade: sampled episodes are bimodal
+(lucky laps vs early crashes), returns from any state are
+dominated by the noise realization, the value function
+cannot fit them (**explained variance ≈ 0.0–0.15 for the
+entire run**), advantages inherit the noise, and the policy
+gradient that remains (per-update approx-KL ≈ 0.0001, clip
+fraction ≈ 0) slowly walks the mean toward whatever line is
+*robust to std-1.0 jitter* — a worse driver, deterministically.
+
+**The probes (one variable each, 300k steps, seed 0).**
+
+| probe | change | eval trajectory | verdict |
+|---|---|---|---|
+| P1 | `vf_coef` 0.5 → 0.05 | flat ~140–210 for all 300k steps; never peaks | value-loss *weight* refuted: cutting it 10× prevented the peak instead of preserving it |
+| P3 | separate pi/vf nets (no shared trunk) | **bit-identical to baseline at all 12 evals** — 2971 @ 75k, 531 @ 125k, 157 @ 300k | trunk interference refuted: with no shared trunk there is nothing for value gradients to corrupt, and the collapse is the same event on the same step |
+| P4 | `log_std_init` −1.0 (std 0.37) | monotonic climb 1000 → 2183; **peak == final**; no cliff through the baseline's kill window | exploration-noise divergence confirmed as the causal variable |
+
+Two corroborations. First, the value-scale story fails in
+both directions: P4's healthy run carries value losses of the
+same ~1000 magnitude as the collapsed one (and explained
+variance still ≈ 0 — value learning on this env is
+chronically weak in *every* run, healthy or not, so it cannot
+be the differentiator). Second, the M5 "stabilizer" variant
+(lr 1e-4, full batch, target_kl) collapsing *earlier* is
+consistent: none of its three knobs touches the noise, and a
+different random walk off the same cliff edge lands sooner
+or later by chance. (`clip_range_vf` was not probed: P1 and
+P3 jointly close the value-side space — weight and pathway —
+and P4's single-variable sufficiency made a fourth probe
+evidence-free.)
+
+**Why SAC and the discrete games were immune.** SAC's std is
+state-dependent and entropy-auto-tuned — its exploration
+noise adapts against the objective instead of being frozen
+at init — and its critic actually fits (replay + targets),
+so its deterministic actor is graded on signal, not noise.
+The categorical games have no mean/sample divergence at
+all: deterministic eval takes the argmax of the same
+distribution the sampler draws from, and a sampled action
+is a legal move played once, not a 20 Hz control signal
+drowned in jitter. The pathology needs all three of:
+continuous Gaussian actions, a frozen init-scale std, and
+a deterministic artifact graded apart from the sampled
+policy.
+
+**The fix.** `log_std_init: -1.0` (std ≈ 0.37) in both
+racing PPO configs and the cockpit's `PAIR_DEFAULTS`
+(parity-tested, as always). It lives at the config layer —
+the framework's recipe seam — because the lesson is per-game
+physics, not a framework universal: the right exploration
+scale is a property of the control problem (action range,
+decision rate, grip), and `policy_kwargs` is exactly where
+SB3 exposes it. **Verification** (600k steps, fixed recipe,
+seed 0): the eval curve climbs the whole run — 1000 @ 25k
+through plateaus at ~2050 (250k) and ~2450 (425k) to a peak
+of **2858 @ 550k**, with the **final model at 2586 — 90% of
+peak, every eval episode completing multiple laps** (min
+episode 2582). The best-checkpoint rescue is no longer
+load-bearing: best and final are the same species of driver.
+One honest qualification: the run *does* visit the crash
+attractor once — 2441 @ 450k → 311 @ 475k → 176 @ 500k —
+the baseline's cliff, deferred ~350k steps, and then it
+**recovers**: 2663 @ 525k, a new peak at 550k. At std 1.0
+that visit is absorbing (the baseline sat at ~150 for the
+remaining 475k steps); at std 0.37 the sampled policy is
+good enough that its data still contains driving, the
+advantages still point home, and the mean finds its way
+back within ~50k steps. The fix therefore does not repeal
+the knife-edge — a drifting mean can still step off the
+line — it demotes the collapse from terminal to transient
+by keeping the trained policy coupled to the shipped one.
+Diagnostics corroborate the mechanics: the run's largest
+parameter jump (param-delta 1.58 @ ~465k) is the knock-off
+event itself, and its largest policy updates by far
+(approx-KL 0.185 and clip fraction 0.48 @ ~498k — against
+run-typical ≈0.0002 / ≈0) fire *inside* the attractor,
+real gradient signal doing the recovery work; the sampled
+return craters to ~280 during the visit and climbs back
+with the mean. `ep_rew_mean` ends at ~1150 against the
+deterministic 2586 — coupled, not inverted.
+Doctrine, stated once for future games: **the artifact you
+ship must be the object you optimize** — if a framework
+grades the deterministic mean, the sampling distribution
+must stay coupled to that mean (exploration noise small
+against control authority), or the eval curve grades a
+policy that never trained. And: for Box-action PPO in SB3,
+treat `log_std_init` as load-bearing — measure the std's
+trajectory before believing it anneals.
+
+**Still open.** (a) The transient dip: whether a lower
+init std (−2.0) removes it or merely defers it past the
+budget is untested; −1.0 was kept because it is the value
+the evidence covers, and its climb is already slower than
+the old transient peak's. (b) Explained variance ≈ 0 in
+every racing PPO run means GAE is running on a decorative
+value function (advantages ≈ discounted Monte-Carlo noise);
+why the value head can't fit this env's returns — spawn
+randomization plus lap-count discreteness are suspects —
+is a separate investigation. (c) The M7 generalist-PPO
+verdict, re-probed under the fix (300k-step probe, killed
+by a VM restart at ~174k; the exam was sat by its
+best-by-eval checkpoint from 150k): the probe's
+random-circuit eval reached 1659 @ 150k — past the broken
+recipe's 600k best of 645 — and on the M7 exam paper the
+checkpoint scored **100% progress, 100% lap completion,
+0% crashes on all five tracks**, the generalist SAC's
+perfect robustness line, at a cautious pace (3.6 laps/ep,
+22.4 s mean lap vs SAC's 6.2 / 13.4 s). So M7's "PPO
+generalist failed" was substantially a verdict on the
+broken recipe: with the noise fixed, even a quarter-budget
+PPO probe is a robust generalist that trades pace for
+survival. Full-budget pace is the open question, and the
+M7 ranking (SAC the better racing driver) stands — SAC
+remains both robust *and* fast, with no dip on record.
+
 
 * More games behind the same contract (the real test of modularity)
   — Match 3 landed in M3 (see above); Flappy Bird landed in M4 as

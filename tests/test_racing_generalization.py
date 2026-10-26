@@ -172,7 +172,7 @@ def test_randomized_mode_validates_its_range_and_version():
     with pytest.raises(ValueError, match="track_seed_lo"):
         RacingEnv(randomize_track=True, track_seed_lo=100, track_seed_hi=100)
     with pytest.raises(ValueError, match="track_version"):
-        RacingEnv(track_version=3)
+        RacingEnv(track_version=4)
 
 
 # -- the exam -------------------------------------------------------------------

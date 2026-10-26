@@ -40,6 +40,14 @@ Physics, observation, and reward are untouched: the raycast
 observation was always track-agnostic geometry, and M7 is where
 that bet is settled.
 
+**Generator v3 (M9)** is a second, deliberately different family —
+segment-built circuits (straights joined by constant-radius arcs,
+closed by an exact linear solve) behind the *same* validity
+gates — built to ask the question M7's exam could not: was the
+generalist's perfect score *driving*, or fluency in the v2
+family's one construction recipe? See the v3 block comment above
+``generate_track_v3``.
+
 Car physics (arcade bicycle model)
 ----------------------------------
 State: ``(x, y, heading, speed)`` — velocity aligned to the heading
@@ -547,6 +555,228 @@ def generate_track_v2(
     return track
 
 
+# ---------------------------------------------------------------------------
+# Track generator v3 (M9) — segment-built circuits: straights + arcs
+#
+# v2's circuits are *splines*: one construction recipe (star-shaped
+# control polygon through a Catmull-Rom) whose curvature varies
+# continuously everywhere — there is no such thing as a straight on a
+# v2 track, and every corner's radius differs from its neighbours'.
+# That makes v2 a *family*, and M7's exam — held out within the
+# family — could not distinguish "learned to drive" from "learned
+# the family". v3 is a second family with a different construction
+# and a different character: circuits assembled the way real tracks
+# are drawn, as **elements** — straights joined by constant-radius
+# arcs. Its curvature profile is a step function (exactly zero on
+# straights, exactly 1/R on arcs) where v2's is a smooth wiggle,
+# and its statistics show it (batch numbers in DESIGN.md, M9).
+#
+# Construction (deterministic per seed):
+#
+# * Draw 5–10 corners: signed turn angles (mostly the loop's main
+#   direction; ~1 in 5 reversed, for S-curves), shifted uniformly so
+#   they sum to exactly +2π — the heading closes by construction.
+#   Angles outside [0.28, 2.80] rad in magnitude reject the draw:
+#   a corner must actually turn, and no corner may fold the loop.
+# * Draw a radius per corner from a mixture (40% hairpin-ish
+#   14.5–28 m, 60% sweepers 24–58 m — all clear of the 13 m gate
+#   the physics sets) and a length per straight (14–62 m).
+# * **Closure is solved, not hoped for.** Element displacements are
+#   exact: straights contribute ``L·u(θ)``; an arc of signed
+#   curvature κ turning φ contributes
+#   ``((sin(θ+φ) − sinθ)/κ, (cosθ − cos(θ+φ))/κ)``. Two straight
+#   lengths are left as unknowns and solved from the 2×2 system
+#   ``Σ displacements = 0`` — pairs are tried in order of
+#   decreasing |sin Δθ| (best-conditioned first) and the first
+#   solve landing both lengths in [14, 110] m wins. The sampled
+#   loop then closes to float precision (~1e-13 m measured).
+# * The element walk is sampled at ~1.75 m spacing into a plain
+#   centerline polyline and assembled by the shared
+#   ``_assemble_track`` — physics, checkpoints and raycasts cannot
+#   tell which generator dealt the circuit.
+#
+# Legality is the same contract as v2, enforced by the same gates
+# (``track_violations``): no self-intersection, branch separation,
+# min circumradius ≥ 13 m — different in character, not impossible.
+# Segment-built loops fail the structural gates honestly (a long
+# straight spearing another branch is exactly what the gates are
+# for), so acceptance takes more attempts than v2 (mean ~9 over a
+# 200-seed batch, vs v2's ~3.1); after 120 attempts the solved-
+# straight window widens ([12, 150] m) as a staged fallback, the
+# same role v2's variance dial plays. 200 attempts without an
+# accept raises.
+# ---------------------------------------------------------------------------
+
+#: Sample spacing (metres) for v3 centerlines — v2 samples its
+#: splines at ~2 m; comparable density keeps the raycast/checkpoint
+#: behaviour on equal footing across families.
+_V3_SAMPLE_SPACING = 1.75
+
+#: Acceptance windows for a v3 straight's length (metres): the
+#: solved pair (see above) and, staged after many failures, the
+#: widened fallback window.
+_V3_SOLVED_RANGE = (14.0, 110.0)
+_V3_SOLVED_RANGE_LATE = (12.0, 150.0)
+_V3_WIDEN_AFTER = 120
+
+
+def _v3_arc_displacement(
+    theta: float, kappa: float, phi: float
+) -> np.ndarray:
+    """Exact displacement of a constant-curvature arc: start
+    heading ``theta``, signed curvature ``kappa``, signed turn
+    ``phi`` (= κ · arc length)."""
+    return np.array(
+        [
+            (np.sin(theta + phi) - np.sin(theta)) / kappa,
+            (np.cos(theta) - np.cos(theta + phi)) / kappa,
+        ]
+    )
+
+
+def _v3_candidate_centerline(
+    rng: np.random.Generator, *, late: bool
+) -> np.ndarray | None:
+    """One raw segment-built candidate centerline, or ``None`` if
+    the draw is unusable (angle constraints violated, or no
+    straight pair closes the loop within the length windows). The
+    validity gates run in the caller — this only builds geometry."""
+    n = int(rng.integers(5, 11))  # 5–10 corners
+    ang = np.empty(n)
+    for i in range(n):
+        mag = rng.uniform(0.35, 2.5)
+        ang[i] = -mag if rng.random() < 0.22 else mag
+    # Uniform shift: total turning becomes exactly +2π (the heading
+    # closes), preserving the drawn left/right variety.
+    ang += (2.0 * np.pi - ang.sum()) / n
+    if bool(np.any(np.abs(ang) < 0.28)) or bool(np.any(np.abs(ang) > 2.80)):
+        return None
+    radii = np.where(
+        rng.random(n) < 0.40,
+        np.exp(rng.uniform(np.log(14.5), np.log(28.0), size=n)),
+        np.exp(rng.uniform(np.log(24.0), np.log(58.0), size=n)),
+    )
+    # Heading along straight i (straight i is followed by arc i).
+    theta = np.concatenate([[0.0], np.cumsum(ang)[:-1]])
+    lengths = rng.uniform(14.0, 62.0, size=n)
+
+    kappa = np.sign(ang) / radii
+    fixed = np.sum(
+        [_v3_arc_displacement(theta[i], kappa[i], ang[i]) for i in range(n)],
+        axis=0,
+    )
+    lo, hi = _V3_SOLVED_RANGE_LATE if late else _V3_SOLVED_RANGE
+    pairs = [(p, q) for p in range(n) for q in range(p + 1, n)]
+    pairs.sort(key=lambda pq: -abs(np.sin(theta[pq[0]] - theta[pq[1]])))
+    solved = False
+    for p, q in pairs:
+        rest = fixed.copy()
+        for i in range(n):
+            if i != p and i != q:
+                rest += lengths[i] * np.array(
+                    [np.cos(theta[i]), np.sin(theta[i])]
+                )
+        mat = np.stack(
+            [
+                np.array([np.cos(theta[p]), np.sin(theta[p])]),
+                np.array([np.cos(theta[q]), np.sin(theta[q])]),
+            ],
+            axis=1,
+        )
+        if abs(float(np.linalg.det(mat))) < 0.25:
+            continue
+        sol = np.linalg.solve(mat, -rest)
+        if lo <= sol[0] <= hi and lo <= sol[1] <= hi:
+            lengths[p], lengths[q] = float(sol[0]), float(sol[1])
+            solved = True
+            break
+    if not solved:
+        return None
+
+    # Walk the elements, sampling the centerline at ~_V3_SAMPLE_SPACING.
+    origin = np.array([0.0, 0.0])
+    pts = [origin]
+    pos = origin.copy()
+    for i in range(n):
+        th = float(theta[i])
+        u = np.array([np.cos(th), np.sin(th)])
+        steps = max(1, int(round(lengths[i] / _V3_SAMPLE_SPACING)))
+        for k in range(1, steps + 1):
+            pts.append(pos + u * (lengths[i] * k / steps))
+        pos = pos + u * lengths[i]
+        # Arc i: exact circle points around its centre.
+        normal = np.array([-np.sin(th), np.cos(th)])
+        center = pos + normal / kappa[i]
+        rel = pos - center
+        asteps = max(2, int(round(abs(ang[i]) * radii[i] / _V3_SAMPLE_SPACING)))
+        for k in range(1, asteps + 1):
+            ph = float(ang[i]) * k / asteps
+            c, s = np.cos(ph), np.sin(ph)
+            pts.append(
+                center
+                + np.array(
+                    [rel[0] * c - rel[1] * s, rel[0] * s + rel[1] * c]
+                )
+            )
+        pos = pts[-1]
+    centerline = np.array(pts)
+    # The walk closes to ~1e-13 m; drop the duplicate origin point so
+    # the wrap segment has ordinary length (no degenerate segment).
+    if float(np.linalg.norm(centerline[-1] - centerline[0])) < 1e-6:
+        centerline = centerline[:-1]
+    return centerline
+
+
+def _generate_track_v3_impl(
+    seed: int,
+    *,
+    half_width: float,
+    n_checkpoints: int,
+    max_attempts: int,
+) -> tuple[Track, int]:
+    """The v3 attempt loop; returns (track, attempts used)."""
+    rng = np.random.default_rng(seed)
+    for attempt in range(max_attempts):
+        centerline = _v3_candidate_centerline(
+            rng, late=attempt >= _V3_WIDEN_AFTER
+        )
+        if centerline is None:
+            continue
+        if track_violations(
+            centerline, half_width=half_width
+        ):
+            continue
+        return (
+            _assemble_track(centerline, half_width, n_checkpoints),
+            attempt + 1,
+        )
+    raise RuntimeError(
+        f"v3 track generation exhausted {max_attempts} attempts for "
+        f"seed {seed} — the widened late window should make this "
+        "unreachable; treat it as a generator bug, not bad luck"
+    )
+
+
+def generate_track_v3(
+    seed: int,
+    *,
+    half_width: float = 6.0,
+    n_checkpoints: int = 24,
+    max_attempts: int = 200,
+) -> Track:
+    """Build a segment-built circuit (straights + constant-radius
+    arcs) deterministically. See the v3 block comment above for the
+    construction, the closure solve, and the gates. Identical seeds
+    reproduce identical tracks, bit for bit (tested)."""
+    track, _attempts = _generate_track_v3_impl(
+        seed,
+        half_width=half_width,
+        n_checkpoints=n_checkpoints,
+        max_attempts=max_attempts,
+    )
+    return track
+
+
 def build_track(
     seed: int,
     *,
@@ -555,9 +785,10 @@ def build_track(
     n_checkpoints: int = 24,
     **v1_kwargs,
 ) -> Track:
-    """Dispatch to the v1 (frozen, canonical) or v2 (procedural,
-    validity-gated) generator. ``v1_kwargs`` are the v1 generator's
-    shape parameters; v2 ignores them (its distribution is its own)."""
+    """Dispatch to the v1 (frozen, canonical), v2 (procedural,
+    validity-gated splines) or v3 (segment-built straights + arcs)
+    generator. ``v1_kwargs`` are the v1 generator's shape parameters;
+    v2 and v3 ignore them (their distributions are their own)."""
     if version == 1:
         return generate_track(
             seed, half_width=half_width, n_checkpoints=n_checkpoints, **v1_kwargs
@@ -566,7 +797,13 @@ def build_track(
         return generate_track_v2(
             seed, half_width=half_width, n_checkpoints=n_checkpoints
         )
-    raise ValueError(f"Unknown track generator version {version!r}; use 1 or 2")
+    if version == 3:
+        return generate_track_v3(
+            seed, half_width=half_width, n_checkpoints=n_checkpoints
+        )
+    raise ValueError(
+        f"Unknown track generator version {version!r}; use 1, 2 or 3"
+    )
 
 
 class RacingEnv(BaseGameEnv):
@@ -634,10 +871,11 @@ class RacingEnv(BaseGameEnv):
             raise ValueError(f"max_steps must be >= 1, got {max_steps}")
         if n_checkpoints < 4:
             raise ValueError(f"n_checkpoints must be >= 4, got {n_checkpoints}")
-        if track_version not in (1, 2):
+        if track_version not in (1, 2, 3):
             raise ValueError(
-                f"track_version must be 1 (frozen canonical) or 2 "
-                f"(procedural), got {track_version}"
+                f"track_version must be 1 (frozen canonical), 2 "
+                f"(procedural splines) or 3 (segment-built), "
+                f"got {track_version}"
             )
         if randomize_track and not 0 <= track_seed_lo < track_seed_hi:
             raise ValueError(

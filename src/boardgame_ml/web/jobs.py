@@ -268,7 +268,11 @@ PAIR_DEFAULTS: dict[tuple[str, str], dict[str, Any]] = {
         "gamma": 0.995,
         "n_envs": 8,
         "learning_rate": 3e-4,
-        "policy_kwargs": {"net_arch": [256, 256]},
+        # log_std_init -1.0 is the M8 collapse fix (DESIGN.md):
+        # at SB3's default std 1.0 the sampled policy PPO trains
+        # is a crash machine and the deterministic artifact rots
+        # after a transient peak; 0.37 keeps the two coupled.
+        "policy_kwargs": {"net_arch": [256, 256], "log_std_init": -1.0},
         "env_kwargs": {"track_seed": 7},
         "hyperparams": {
             "n_steps": 256,
@@ -327,6 +331,16 @@ PAIR_VARIANTS: dict[str, dict[str, Any]] = {
             "randomize_track": True,
             "track_seed_lo": 10_000,
             "track_seed_hi": 11_000,
+        },
+    },
+    "racing_sac_generalist_v3": {
+        "game": "racing",
+        "algorithm": "sac",
+        "env_kwargs": {
+            "track_version": 3,
+            "randomize_track": True,
+            "track_seed_lo": 70_000,
+            "track_seed_hi": 71_000,
         },
     },
 }
