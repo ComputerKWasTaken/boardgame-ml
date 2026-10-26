@@ -99,21 +99,29 @@ action space instead of observation/reward.**
 
 ## Standing disciplines (not milestones — woven into everything)
 
-- **Multi-seed replication.** Every headline number so far is one training
+- **Multi-seed replication.** *Established in M10 (2026-10-26): the
+  four flagship claims were rerun at 3 seeds each — see DESIGN.md's
+  M10 section for the tables and verdicts.* Every headline number so
+  far is one training
   seed. From here: flagship runs go 3 seeds, results report the spread, and
   seed is stamped in every run's summary. The existing flagships get their
   reruns opportunistically, alongside new work — the debt stops growing
   first, then shrinks.
-- **Benchmark calibration.** The train() pipeline must reproduce published
+- **Benchmark calibration.** *Established in M10 (2026-10-26):
+  `train()` reproduces the published Zoo PPO figures on CartPole-v1
+  (500.0) and LunarLander-v2 (245.9 vs ~260); the tripwire smoke
+  test lives in `tests/test_calibration.py`.* The train() pipeline must reproduce published
   SB3 results on LunarLander/CartPole. M8's std bug hid for two milestones
   because nothing anchored our numbers to the outside world; this is the
   tripwire, run whenever training code changes.
 
 ## Chores (folded into the next racing milestone, not roadmap items)
 
-- Backfill `summary.json` for the M7 SAC generalist run so the cockpit lists
-  the project's best driver.
-- Version the M7/M9 exam papers into the repo as first-class artifacts.
+- ~~Backfill `summary.json` for the M7 SAC generalist run so the cockpit lists
+  the project's best driver.~~ **Done in M10** — reconstructed from the
+  run's artifacts and marked `"backfilled": true`.
+- ~~Version the M7/M9 exam papers into the repo as first-class artifacts.~~
+  **Done** (`eval/papers/`).
 
 ---
 

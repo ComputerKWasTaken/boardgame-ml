@@ -1,0 +1,118 @@
+{
+  "track_version": 3,
+  "episodes_per_track": 20,
+  "seed_base": 777000,
+  "tracks": {
+    "60001": {
+      "seed": 60001,
+      "track_seed_actual": 60001,
+      "length_m": 773.9720514898985,
+      "min_turn_radius_m": 14.593144547528476,
+      "p10_turn_radius_m": 24.073292074663357,
+      "corners_r40": 5.0,
+      "tight_fraction_r35": 0.21768707482993196
+    },
+    "60002": {
+      "seed": 60002,
+      "track_seed_actual": 60002,
+      "length_m": 680.2922818018388,
+      "min_turn_radius_m": 16.32333479315423,
+      "p10_turn_radius_m": 29.72942333736067,
+      "corners_r40": 6.0,
+      "tight_fraction_r35": 0.14395886889460155
+    },
+    "60003": {
+      "seed": 60003,
+      "track_seed_actual": 60003,
+      "length_m": 444.00067854973577,
+      "min_turn_radius_m": 17.11108297189619,
+      "p10_turn_radius_m": 18.954931967369003,
+      "corners_r40": 4.0,
+      "tight_fraction_r35": 0.18181818181818182
+    },
+    "60004": {
+      "seed": 60004,
+      "track_seed_actual": 60004,
+      "length_m": 544.1694192911142,
+      "min_turn_radius_m": 19.913369437611756,
+      "p10_turn_radius_m": 39.532776061809464,
+      "corners_r40": 3.0,
+      "tight_fraction_r35": 0.09646302250803858
+    },
+    "60005": {
+      "seed": 60005,
+      "track_seed_actual": 60005,
+      "length_m": 493.04251749045306,
+      "min_turn_radius_m": 22.86078837126209,
+      "p10_turn_radius_m": 26.030577366364753,
+      "corners_r40": 4.0,
+      "tight_fraction_r35": 0.2198581560283688
+    }
+  },
+  "agents": {
+    "runs/racing_sac_s0_a95d8b2e/best_model.zip": {
+      "per_track": {
+        "60001": {
+          "episodes": 20,
+          "mean_progress_fraction": 0.5931462862790389,
+          "mean_progress_m": 460.21132998028133,
+          "lap_rate": 0.05,
+          "mean_laps": 0.05,
+          "crash_rate": 1.0,
+          "mean_lap_time": 36.1,
+          "best_lap_time": 36.1
+        },
+        "60002": {
+          "episodes": 20,
+          "mean_progress_fraction": 0.5830041145398747,
+          "mean_progress_m": 400.22680347740055,
+          "lap_rate": 0.1,
+          "mean_laps": 0.1,
+          "crash_rate": 1.0,
+          "mean_lap_time": 29.35,
+          "best_lap_time": 29.0
+        },
+        "60003": {
+          "episodes": 20,
+          "mean_progress_fraction": 1.0,
+          "mean_progress_m": 1864.662453700898,
+          "lap_rate": 1.0,
+          "mean_laps": 4.0,
+          "crash_rate": 0.0,
+          "mean_lap_time": 21.323124999999997,
+          "best_lap_time": 20.8
+        },
+        "60004": {
+          "episodes": 20,
+          "mean_progress_fraction": 1.0,
+          "mean_progress_m": 2070.3442483335557,
+          "lap_rate": 1.0,
+          "mean_laps": 3.0,
+          "crash_rate": 0.0,
+          "mean_lap_time": 23.625833333333333,
+          "best_lap_time": 23.0
+        },
+        "60005": {
+          "episodes": 20,
+          "mean_progress_fraction": 1.0,
+          "mean_progress_m": 1975.762049904009,
+          "lap_rate": 1.0,
+          "mean_laps": 4.0,
+          "crash_rate": 0.0,
+          "mean_lap_time": 22.32375,
+          "best_lap_time": 21.8
+        }
+      },
+      "pooled": {
+        "episodes": 100,
+        "mean_progress_fraction": 0.8352300801637828,
+        "mean_progress_m": 1354.2413770792286,
+        "lap_rate": 0.63,
+        "mean_laps": 2.23,
+        "crash_rate": 0.4,
+        "mean_lap_time": 22.439910313901347,
+        "best_lap_time": 20.8
+      }
+    }
+  }
+}

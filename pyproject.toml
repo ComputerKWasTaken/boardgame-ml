@@ -21,6 +21,10 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "httpx>=0.27"]
 web = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
+# Benchmark calibration (M10): LunarLander needs Box2D + pygame. The
+# gymnasium[box2d] source build of box2d-py fails on this toolchain; the
+# prebuilt `box2d` wheel (2.3.10) is the working install.
+calibration = ["box2d>=2.3.10", "pygame>=2.5"]
 
 [project.scripts]
 boardgame-ml-web = "boardgame_ml.web.__main__:main"

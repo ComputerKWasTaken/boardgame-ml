@@ -254,6 +254,24 @@ M9 asks the harder question with a second family:
 
 
 
+## Milestone 10 — Foundations (calibration + three-seed replication)
+
+* **Calibration** — the framework's own `train()` reproduces the
+  published RL-Zoo PPO results on CartPole-v1 (500.0, the cap) and
+  LunarLander-v2 (245.9 vs ~260 reference): the pipeline is anchored
+  to the outside world, with a tripwire test so the next M8-class
+  bug can't hide. Gym classics enter through a small shim env.
+* **Replication** — the four flagship claims (racing PPO's fixed
+  recipe, Match 3, the racing SAC generalist, the Connect Four
+  league) rerun at 3 seeds each under identical protocol. Three
+  hold exactly as shipped; Connect Four holds with a twist — one
+  seed in three solves the second-seat defense the shipped run
+  lacked. Full tables under "M10 results" below; the two roadmap
+  disciplines (multi-seed replication, benchmark calibration) are
+  now established practice.
+
+
+
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"     # CPU PyTorch via PyPI
@@ -813,6 +831,57 @@ Scope note: "cross-family" here means two circuit
 generators (splines vs segments) behind the same gates, car
 and observation; open roads, width variation and traffic
 remain untested by design.
+
+## M10 results — Foundations
+
+Calibration (framework `train()`, Zoo-canonical PPO hyperparameters;
+best checkpoint re-measured by the independent evaluator, 100
+deterministic episodes):
+
+| Suite | Measured | Reference | Verdict |
+|---|---|---|---|
+| CartPole-v1 (100k steps) | 500.0 ± 0.0 | 500 | in ballpark — the cap |
+| LunarLander-v2 (1M steps) | 245.9 ± 32.7 | ~260 | in ballpark |
+
+Three-seed replication (seed 0 = the shipped artifact, re-measured;
+seeds 1–2 = fresh runs, identical protocol):
+
+Racing PPO fixed recipe (600k, seed-7 track) — peak → final eval:
+
+| Seed | Peak | Final | Final % of peak |
+|---|---|---|---|
+| 0 | 2858 | 2586 | 90.5% |
+| 1 | 2916 | 2916 | 100.0% |
+| 2 | 2961 | 2961 | 100.0% |
+
+No terminal collapse in 3/3 seeds; both non-trivial seeds visited
+the crash attractor transiently and recovered. **Claim holds.**
+
+Match 3 (700k recipe, 1,000-episode eval) — trained mean return:
+**701.8 / 715.9 / 718.0** across seeds (mean 711.9, spread ≈2%),
+vs greedy 571.6 and random 564.7 re-measured. **Claim holds.**
+
+Racing SAC generalist (F2 exam, held-out tracks × 20 episodes) —
+progress / lap rate / crash rate: **100% / 100% / 0% on all three
+seeds**; mean lap 13.38 / 13.82 / 14.17 s. **Claim holds maximally.**
+
+Connect Four (shipped league recipe, 2.00M steps; 200 games/seat):
+
+| Seed | Random | Greedy | Minimax d4 | Snapshot₀ | FPA |
+|---|---|---|---|---|---|
+| 0 | 95.0% | 50.0% | 50.0% | 100% | 75.5% |
+| 1 | 94.8% | 50.0% | 50.0% | 100% | 76.1% |
+| 2 | 92.2% | 100.0% | 50.0% (0 losses) | 100% | 58.4% |
+
+Seeds 0–1 reproduce M6's perfect seat split exactly (win every
+game as first player, none as second, vs both yardsticks). Seed 2
+beats greedy from both seats and draws minimax 200/200 as second
+player — the second-seat defense deficit is bimodal across seeds,
+not a recipe invariant. **Claim holds, with that caveat.**
+
+Chores: `summary.json` backfilled (marked as such, unsupported
+fields null) for the M7 SAC generalist run; M7/M9 exam papers
+versioned into `eval/papers/`.
 
 ## Post-M1 hardening
 

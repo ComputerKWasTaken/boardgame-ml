@@ -1030,6 +1030,138 @@ traffic — the dimensions along which "driving in general"
 would next be falsified.
 
 
+## Foundations (M10) — calibration and three-seed replication
+
+M10 adds no game and no algorithm. It pays down the two debts the
+roadmap named as standing disciplines, because every claim before it
+rested on the same two weaknesses: each headline number was a single
+training seed, and nothing anchored the framework's own training
+pipeline to the outside world — M8's exploration-std bug survived
+two milestones precisely because there was no external anchor to
+disagree with it.
+
+**Part 1 — benchmark calibration.** The framework's `train()` (not a
+hand-rolled SB3 script: the plumbing is what is under test) trains
+PPO on two Gymnasium classics through a thin shim
+(`envs/gym_classic.py`), using RL Baselines3 Zoo canonical
+hyperparameters. Each run's best-by-eval checkpoint is then
+re-measured by the framework's independent evaluator — 100
+deterministic episodes at a fixed seed never used in training — and
+read against the published Zoo figures.
+
+| Suite | Budget | Measured (independent eval) | Published reference | Solved bar | Verdict |
+|---|---|---|---|---|---|
+| CartPole-v1 | 100k steps, 8 envs | **500.0 ± 0.0** | 500 (Zoo hub card) | 475 | in ballpark — the cap |
+| LunarLander-v2 | 1M steps, 16 envs | **245.9 ± 32.7** | ~260 (hub agents 257.7, 262.1) | 200 | in ballpark |
+
+Two naming/protocol notes. The Zoo's "LunarLander-v3" is the same
+environment under gymnasium 1.0; under this project's gymnasium 0.29
+it is `-v2`. And CartPole carries one recorded deviation: the Zoo
+decays learning rate and clip range linearly, while
+`ExperimentConfig` carries scalars, so the suite runs constant
+1e-3 / 0.2 — it still pins the cap. The tripwire lives in
+`tests/test_calibration.py`: a shortened CartPole run through
+`train()` must clear 250, so the next std-class bug trips a test
+instead of hiding inside a flagship result.
+
+**Part 2 — three-seed replication of the four flagship claims.**
+Existing seed-0 artifacts count as seed 0 (re-measured under the
+replication protocol where a measurement harness is involved);
+seeds 1–2 are fresh runs of the shipped recipes, identical protocol.
+
+*Racing PPO, fixed recipe (M8's `log_std_init: -1.0`), 600k steps,
+seed-7 track. Claim: final eval within ~10% of peak, no terminal
+collapse.*
+
+| Seed | Peak eval | Final eval | Final as % of peak |
+|---|---|---|---|
+| 0 | 2858 @ 550k | 2586 | 90.5% |
+| 1 | 2916 @ 600k | 2916 | 100.0% |
+| 2 | 2961 @ 600k | 2961 | 100.0% |
+
+**Holds.** No terminal collapse in 3/3 seeds. Both non-trivial
+seeds visited the crash attractor transiently (seed 0 fell to 176
+at 500k, seed 2 to 1493 at 525k) and recovered to their peaks —
+at the old std 1.0 the same visit was absorbing. The M8 fix is a
+property of the recipe, not of one lucky run.
+
+*Match 3, 700k recipe, 1,000-episode eval. Claim (M3): trained
+701.8 vs greedy 571.6 / random 568.3.*
+
+| Seed | Trained mean |
+|---|---|
+| 0 | 701.8 |
+| 1 | 715.9 |
+| 2 | 718.0 |
+
+**Holds, decisively and tightly** — mean 711.9, spread 16.2 points
+(≈2%). Baselines re-measured under the replication eval seed:
+greedy 571.6, random 564.7 (M3's 568.3 was measured under a
+different eval seed; the trained numbers are the comparison that
+matters, and every seed clears greedy by 130+ points).
+
+*Racing SAC generalist, F2 exam (held-out tracks 50001–50005,
+20 episodes each). Claim (M7): 100% laps, 0% crashes.*
+
+| Seed | Progress | Lap rate | Crash rate | Laps/ep | Mean lap |
+|---|---|---|---|---|---|
+| 0 | 100% | 100% | 0% | 6.2 | 13.38 s |
+| 1 | 100% | 100% | 0% | 6.0 | 13.82 s |
+| 2 | 100% | 100% | 0% | 5.8 | 14.17 s |
+
+**Holds, maximally** — zero variance on the claim itself; only pace
+varies, by ±0.4 s. Seed 0 is its original artifact (VM-killed at
+~170k of 200k steps, best checkpoint at 70k); seeds 1–2 are clean
+runs at the milestone's stated 150k budget, defensible because the
+seed-0 curve had plateaued by 30–70k steps. Seed 1's road here was
+not clean — attempts died at 20k, ~41.5k, and ~135k steps to VM
+restarts before a clean run landed; the ~135k attempt's best
+checkpoint independently exams at the same 100/100/0 line. The
+citable seed-1 numbers are the clean run's.
+
+*Connect Four, shipped league recipe, 2.00M steps; tournament per
+M6 (200 games/seat vs random / greedy / minimax depth-4 / own first
+snapshot). Claim (M6): random ~91%, greedy 50%, minimax 50%, FPA
+75.1% — the perfect seat split.*
+
+| Seed | Random | Greedy | Minimax | Snapshot₀ | FPA |
+|---|---|---|---|---|---|
+| 0 | 95.0% | 50.0% (200W as 1st, 0W as 2nd) | 50.0% (same split) | 100% | 75.5% |
+| 1 | 94.8% | 50.0% (same split) | 50.0% (same split) | 100% | 76.1% |
+| 2 | 92.2% | **100.0%** (wins both seats) | 50.0% wins, **0 losses** (200 draws as 2nd) | 100% | **58.4%** |
+
+**Holds, with the milestone's most interesting caveat.** Seeds 0
+and 1 reproduce M6's silhouette exactly — the opening seat wins
+every game against both yardsticks, the second seat wins none,
+and zero games are drawn anywhere. Seed 2 breaks it in the
+direction M6 named as future work: it beats greedy from *both*
+seats (400-0-0) and, as second player against minimax, draws all
+200 games instead of losing them. The second-seat defense deficit
+is therefore not a property of the recipe — it is bimodal across
+seeds, and the shipped artifact happens to sit at the
+non-defending end of the distribution. Random-opponent results
+are tight across seeds (95.0 / 94.8 / 92.2; seed 0's small delta
+from M6's 91.2% traces to the tournament seed base — the
+deterministic pairings match exactly).
+
+**Part 3 — chores.** `summary.json` backfilled for the M7 SAC
+generalist run (`runs/racing_sac_s0_77baf5ad`), reconstructed from
+its config hash, train log, and eval logs and marked
+`"backfilled": true` — fields the artifacts cannot support
+(`final_model`, `train_seconds`) are null rather than invented, so
+the cockpit lists the project's best driver honestly. The M7/M9
+exam papers are versioned into `eval/papers/` as first-class
+artifacts.
+
+**A methodology note, because it shaped this milestone.** M10 ran
+through repeated VM restarts that killed in-flight runs (one SAC
+seed three times; both new Connect Four seeds once each). Dead
+attempts are preserved with `_dead<steps>` suffixes rather than
+deleted, restarts were fresh runs of the same recipe, and every
+number above was re-verified against the final on-disk artifacts
+before being written here — monitoring snapshots taken mid-flight
+proved unreliable across restarts and were never cited.
+
 * More games behind the same contract (the real test of modularity)
   — Match 3 landed in M3 (see above); Flappy Bird landed in M4 as
   the first continuous-dynamics game (see "Continuous games");

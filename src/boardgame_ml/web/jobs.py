@@ -62,6 +62,7 @@ PRESETS: dict[str, dict[str, dict[str, int]]] = {
             "connect_four": 300_000,
             "racing": 250_000,
             "racing:sac": 50_000,
+            "gym_classic": 25_000,
         },
         "eval_freq": {
             "default": 5_000,
@@ -80,6 +81,7 @@ PRESETS: dict[str, dict[str, dict[str, int]]] = {
             "connect_four": 2_000_000,
             "racing": 600_000,
             "racing:sac": 150_000,
+            "gym_classic": 100_000,
         },
         "eval_freq": {
             "default": 10_000,
@@ -109,6 +111,7 @@ PRESETS: dict[str, dict[str, dict[str, int]]] = {
             "connect_four": 4_000_000,
             "racing": 1_500_000,
             "racing:sac": 300_000,
+            "gym_classic": 1_000_000,
         },
         "eval_freq": {
             "default": 10_000,

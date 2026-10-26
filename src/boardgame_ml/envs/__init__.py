@@ -8,6 +8,7 @@ from boardgame_ml.envs.base import BaseGameEnv
 from boardgame_ml.envs.blackjack import BlackjackEnv
 from boardgame_ml.envs.connect_four import ConnectFourEnv
 from boardgame_ml.envs.flappy import FlappyBirdEnv
+from boardgame_ml.envs.gym_classic import GymClassicEnv
 from boardgame_ml.envs.higher_or_lower import HigherOrLowerEnv
 from boardgame_ml.envs.match3 import Match3Env
 from boardgame_ml.envs.racing import RacingEnv
@@ -23,6 +24,13 @@ GAMES: dict[str, type[BaseGameEnv]] = {
     "racing": RacingEnv,
     "connect_four": ConnectFourEnv,
     "pong": PongEnv,
+    # Not a home game: a Gymnasium classic (env_id via env_kwargs)
+    # admitted through the GymClassicEnv shim so train() can be
+    # calibrated against published Zoo results (M10). It lives in
+    # the registry because ExperimentConfig validates against it;
+    # the cockpit offers no Train pair for it (calibration is a CLI
+    # discipline, eval/calibration.py).
+    "gym_classic": GymClassicEnv,
 }
 
 #: Alternating and simultaneous two-player games. Training uses the matching
@@ -56,6 +64,7 @@ __all__ = [
     "FlappyBirdEnv",
     "RacingEnv",
     "ConnectFourEnv",
+    "GymClassicEnv",
     "GAMES",
     "TWO_PLAYER_GAMES",
     "make_env",

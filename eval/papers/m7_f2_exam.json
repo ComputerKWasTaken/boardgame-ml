@@ -1,0 +1,374 @@
+{
+  "track_version": 2,
+  "episodes_per_track": 20,
+  "seed_base": 777000,
+  "tracks": {
+    "50001": {
+      "seed": 50001,
+      "track_seed_actual": 50001,
+      "length_m": 360.37902636425343,
+      "min_turn_radius_m": 18.21659813733306,
+      "p10_turn_radius_m": 26.531382326082543,
+      "corners_r40": 7.0,
+      "tight_fraction_r35": 0.20192307692307693
+    },
+    "50002": {
+      "seed": 50002,
+      "track_seed_actual": 50002,
+      "length_m": 320.7869949508936,
+      "min_turn_radius_m": 14.150849091460167,
+      "p10_turn_radius_m": 27.5234664450795,
+      "corners_r40": 5.0,
+      "tight_fraction_r35": 0.17708333333333334
+    },
+    "50003": {
+      "seed": 50003,
+      "track_seed_actual": 50003,
+      "length_m": 321.98478280522625,
+      "min_turn_radius_m": 21.66890386905901,
+      "p10_turn_radius_m": 31.964149121366912,
+      "corners_r40": 6.0,
+      "tight_fraction_r35": 0.1875
+    },
+    "50004": {
+      "seed": 50004,
+      "track_seed_actual": 50004,
+      "length_m": 384.0319376681989,
+      "min_turn_radius_m": 24.629374433830716,
+      "p10_turn_radius_m": 32.35260527149431,
+      "corners_r40": 6.0,
+      "tight_fraction_r35": 0.1534090909090909
+    },
+    "50005": {
+      "seed": 50005,
+      "track_seed_actual": 50005,
+      "length_m": 282.5454314620959,
+      "min_turn_radius_m": 22.291112437869195,
+      "p10_turn_radius_m": 28.503090190566763,
+      "corners_r40": 8.0,
+      "tight_fraction_r35": 0.23660714285714285
+    }
+  },
+  "agents": {
+    "runs/racing_sac_s0_d765d4d3/best_model.zip": {
+      "per_track": {
+        "50001": {
+          "episodes": 20,
+          "mean_progress_fraction": 0.6696013505563391,
+          "mean_progress_m": 251.58078346098105,
+          "lap_rate": 0.25,
+          "mean_laps": 0.25,
+          "crash_rate": 1.0,
+          "mean_lap_time": 15.790000000000001,
+          "best_lap_time": 15.4
+        },
+        "50002": {
+          "episodes": 20,
+          "mean_progress_fraction": 0.9185136147531333,
+          "mean_progress_m": 1414.3198930073308,
+          "lap_rate": 0.85,
+          "mean_laps": 3.8,
+          "crash_rate": 0.55,
+          "mean_lap_time": 13.757894736842108,
+          "best_lap_time": 13.350000000000001
+        },
+        "50003": {
+          "episodes": 20,
+          "mean_progress_fraction": 1.0,
+          "mean_progress_m": 2181.752155461809,
+          "lap_rate": 1.0,
+          "mean_laps": 6.0,
+          "crash_rate": 0.0,
+          "mean_lap_time": 13.271250000000002,
+          "best_lap_time": 12.850000000000001
+        },
+        "50004": {
+          "episodes": 20,
+          "mean_progress_fraction": 0.9638689146961447,
+          "mean_progress_m": 2294.392983641569,
+          "lap_rate": 0.95,
+          "mean_laps": 5.7,
+          "crash_rate": 0.05,
+          "mean_lap_time": 14.315350877192984,
+          "best_lap_time": 13.75
+        },
+        "50005": {
+          "episodes": 20,
+          "mean_progress_fraction": 1.0,
+          "mean_progress_m": 2147.2268932851093,
+          "lap_rate": 1.0,
+          "mean_laps": 7.0,
+          "crash_rate": 0.0,
+          "mean_lap_time": 11.823214285714288,
+          "best_lap_time": 11.55
+        }
+      },
+      "pooled": {
+        "episodes": 100,
+        "mean_progress_fraction": 0.9103967760011232,
+        "mean_progress_m": 1657.854541771359,
+        "lap_rate": 0.81,
+        "mean_laps": 4.55,
+        "crash_rate": 0.32,
+        "mean_lap_time": 13.196263736263738,
+        "best_lap_time": 11.55
+      }
+    },
+    "runs/racing_ppo_s0_d8430b62/best_model.zip": {
+      "per_track": {
+        "50001": {
+          "episodes": 20,
+          "mean_progress_fraction": 0.7190909622856827,
+          "mean_progress_m": 259.8410130039539,
+          "lap_rate": 0.05,
+          "mean_laps": 0.05,
+          "crash_rate": 1.0,
+          "mean_lap_time": 17.55,
+          "best_lap_time": 17.55
+        },
+        "50002": {
+          "episodes": 20,
+          "mean_progress_fraction": 0.6823509961909672,
+          "mean_progress_m": 221.84964420678148,
+          "lap_rate": 0.2,
+          "mean_laps": 0.2,
+          "crash_rate": 1.0,
+          "mean_lap_time": 16.025000000000002,
+          "best_lap_time": 15.700000000000001
+        },
+        "50003": {
+          "episodes": 20,
+          "mean_progress_fraction": 0.830213965572052,
+          "mean_progress_m": 285.70466645081933,
+          "lap_rate": 0.4,
+          "mean_laps": 0.4,
+          "crash_rate": 1.0,
+          "mean_lap_time": 15.71875,
+          "best_lap_time": 15.450000000000001
+        },
+        "50004": {
+          "episodes": 20,
+          "mean_progress_fraction": 0.8609027692136291,
+          "mean_progress_m": 1373.2422685433962,
+          "lap_rate": 0.6,
+          "mean_laps": 3.0,
+          "crash_rate": 0.4,
+          "mean_lap_time": 16.27916666666667,
+          "best_lap_time": 15.65
+        },
+        "50005": {
+          "episodes": 20,
+          "mean_progress_fraction": 1.0,
+          "mean_progress_m": 846.5834734574228,
+          "lap_rate": 1.0,
+          "mean_laps": 2.55,
+          "crash_rate": 1.0,
+          "mean_lap_time": 12.47156862745098,
+          "best_lap_time": 11.350000000000001
+        }
+      },
+      "pooled": {
+        "episodes": 100,
+        "mean_progress_fraction": 0.8185117386524662,
+        "mean_progress_m": 597.4442131324746,
+        "lap_rate": 0.45,
+        "mean_laps": 1.24,
+        "crash_rate": 0.88,
+        "mean_lap_time": 14.679032258064515,
+        "best_lap_time": 11.350000000000001
+      }
+    },
+    "runs/racing_sac_s0_77baf5ad/best_model.zip": {
+      "per_track": {
+        "50001": {
+          "episodes": 20,
+          "mean_progress_fraction": 1.0,
+          "mean_progress_m": 2242.5513577946867,
+          "lap_rate": 1.0,
+          "mean_laps": 6.0,
+          "crash_rate": 0.0,
+          "mean_lap_time": 14.425,
+          "best_lap_time": 14.05
+        },
+        "50002": {
+          "episodes": 20,
+          "mean_progress_fraction": 1.0,
+          "mean_progress_m": 2121.1497900382446,
+          "lap_rate": 1.0,
+          "mean_laps": 6.0,
+          "crash_rate": 0.0,
+          "mean_lap_time": 13.590000000000002,
+          "best_lap_time": 13.25
+        },
+        "50003": {
+          "episodes": 20,
+          "mean_progress_fraction": 1.0,
+          "mean_progress_m": 2210.9114928246545,
+          "lap_rate": 1.0,
+          "mean_laps": 6.0,
+          "crash_rate": 0.0,
+          "mean_lap_time": 13.095,
+          "best_lap_time": 12.75
+        },
+        "50004": {
+          "episodes": 20,
+          "mean_progress_fraction": 1.0,
+          "mean_progress_m": 2456.4134904929233,
+          "lap_rate": 1.0,
+          "mean_laps": 6.0,
+          "crash_rate": 0.0,
+          "mean_lap_time": 14.042916666666667,
+          "best_lap_time": 13.55
+        },
+        "50005": {
+          "episodes": 20,
+          "mean_progress_fraction": 1.0,
+          "mean_progress_m": 2121.757165232978,
+          "lap_rate": 1.0,
+          "mean_laps": 7.0,
+          "crash_rate": 0.0,
+          "mean_lap_time": 11.96142857142857,
+          "best_lap_time": 11.65
+        }
+      },
+      "pooled": {
+        "episodes": 100,
+        "mean_progress_fraction": 1.0,
+        "mean_progress_m": 2230.5566592766977,
+        "lap_rate": 1.0,
+        "mean_laps": 6.2,
+        "crash_rate": 0.0,
+        "mean_lap_time": 13.375725806451614,
+        "best_lap_time": 11.65
+      }
+    },
+    "runs/racing_ppo_s0_768bb5e5/best_model.zip": {
+      "per_track": {
+        "50001": {
+          "episodes": 20,
+          "mean_progress_fraction": 0.604117609763151,
+          "mean_progress_m": 222.160516884656,
+          "lap_rate": 0.05,
+          "mean_laps": 0.05,
+          "crash_rate": 1.0,
+          "mean_lap_time": 16.8,
+          "best_lap_time": 16.8
+        },
+        "50002": {
+          "episodes": 20,
+          "mean_progress_fraction": 0.5423467801200574,
+          "mean_progress_m": 173.97779381600625,
+          "lap_rate": 0.0,
+          "mean_laps": 0.0,
+          "crash_rate": 1.0,
+          "mean_lap_time": null,
+          "best_lap_time": null
+        },
+        "50003": {
+          "episodes": 20,
+          "mean_progress_fraction": 0.7664012151415693,
+          "mean_progress_m": 261.5016126579668,
+          "lap_rate": 0.3,
+          "mean_laps": 0.3,
+          "crash_rate": 1.0,
+          "mean_lap_time": 14.091666666666669,
+          "best_lap_time": 13.600000000000001
+        },
+        "50004": {
+          "episodes": 20,
+          "mean_progress_fraction": 0.76568943199663,
+          "mean_progress_m": 322.27157501658934,
+          "lap_rate": 0.4,
+          "mean_laps": 0.4,
+          "crash_rate": 1.0,
+          "mean_lap_time": 15.39375,
+          "best_lap_time": 14.75
+        },
+        "50005": {
+          "episodes": 20,
+          "mean_progress_fraction": 0.8478424719138999,
+          "mean_progress_m": 1168.1803179967335,
+          "lap_rate": 0.55,
+          "mean_laps": 3.65,
+          "crash_rate": 0.45,
+          "mean_lap_time": 12.867123287671232,
+          "best_lap_time": 12.700000000000001
+        }
+      },
+      "pooled": {
+        "episodes": 100,
+        "mean_progress_fraction": 0.7052795017870617,
+        "mean_progress_m": 429.61836327439033,
+        "lap_rate": 0.26,
+        "mean_laps": 0.88,
+        "crash_rate": 0.89,
+        "mean_lap_time": 13.225000000000001,
+        "best_lap_time": 12.700000000000001
+      }
+    },
+    "racing_heuristic": {
+      "per_track": {
+        "50001": {
+          "episodes": 20,
+          "mean_progress_fraction": 1.0,
+          "mean_progress_m": 1140.6245944835596,
+          "lap_rate": 1.0,
+          "mean_laps": 3.0,
+          "crash_rate": 0.0,
+          "mean_lap_time": 28.236666666666668,
+          "best_lap_time": 27.700000000000003
+        },
+        "50002": {
+          "episodes": 20,
+          "mean_progress_fraction": 1.0,
+          "mean_progress_m": 1115.4188125404414,
+          "lap_rate": 1.0,
+          "mean_laps": 3.0,
+          "crash_rate": 0.0,
+          "mean_lap_time": 25.735000000000003,
+          "best_lap_time": 24.650000000000002
+        },
+        "50003": {
+          "episodes": 20,
+          "mean_progress_fraction": 1.0,
+          "mean_progress_m": 1160.1511657356127,
+          "lap_rate": 1.0,
+          "mean_laps": 3.0,
+          "crash_rate": 0.0,
+          "mean_lap_time": 24.825,
+          "best_lap_time": 24.150000000000002
+        },
+        "50004": {
+          "episodes": 20,
+          "mean_progress_fraction": 1.0,
+          "mean_progress_m": 1218.289796928714,
+          "lap_rate": 1.0,
+          "mean_laps": 3.0,
+          "crash_rate": 0.0,
+          "mean_lap_time": 28.198333333333338,
+          "best_lap_time": 27.450000000000003
+        },
+        "50005": {
+          "episodes": 20,
+          "mean_progress_fraction": 1.0,
+          "mean_progress_m": 1084.1681578969647,
+          "lap_rate": 1.0,
+          "mean_laps": 3.0,
+          "crash_rate": 0.0,
+          "mean_lap_time": 23.319166666666664,
+          "best_lap_time": 22.6
+        }
+      },
+      "pooled": {
+        "episodes": 100,
+        "mean_progress_fraction": 1.0,
+        "mean_progress_m": 1143.7305055170584,
+        "lap_rate": 1.0,
+        "mean_laps": 3.0,
+        "crash_rate": 0.0,
+        "mean_lap_time": 26.062833333333334,
+        "best_lap_time": 22.6
+      }
+    }
+  }
+}
