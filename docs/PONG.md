@@ -212,6 +212,46 @@ intercept, ≥80% vs random) were missed by both experiments. The shipped
 config remains unchanged; the warm-start and shaping machinery stays,
 tested (suite 320 passed), as available levers.
 
+## Learning check follow-up 3 — behavior cloning (October 26, 2026)
+
+The framework gained a behavior-cloning pipeline
+(`training/behavior_cloning.py`: demo generation from any programmatic
+baseline + supervised policy training that emits a standard checkpoint
+for `init_checkpoint`). Dataset: 404,504 pairs from the intercept teacher
+(teacher-vs-teacher / -tracker / -random, plus a 20% DAgger-style slice
+of ε-noised teacher play labeled with true teacher actions). Clone
+validation accuracy: **89.1%** per-step action prediction.
+
+The pure clone plays at tabula-rasa level anyway: 47% vs random, 0 wins
+vs tracker (41 points), **0 points vs intercept**. Per-step imitation
+fidelity does not survive compounding over ~1,800-step rallies — the
+textbook distribution-shift failure, sharpened by a 68%-idle action
+distribution in which the decisive timing steps are a tiny,
+underweighted minority. Fine-tuning from the clone (250k, shipped
+mixture) set two project records — lr 3e-4's final model: **78% vs
+random** (previous best 66%) and **90 points vs tracker** (previous best
+63) — and still scored zero vs intercept. Running total across all Pong
+experiments: **0 points vs intercept in 1,700 exam matches.**
+
+Generation also surfaced a fact about the game itself: **the intercept
+teacher playing itself drew 0–0 on the timer in all 34 matches — it
+never scores on itself**, and against tracker it concedes nothing
+(69–0 points) while winning mostly low-scoring timer grinds. Competent
+defense in this game is close to absolute; the realistic summit for a
+learner is parity defense, not rout. The agent's 0–5 concessions remain
+a defensive failure (the teacher concedes 0 to tracker), but "score on
+intercept" as a bar asks for something the teacher itself cannot do
+against its own class of defense.
+
+Status: Pong has now failed via sparse-reward RL (four runs),
+curriculum, shaping, and imitation + fine-tuning. The evidence indicts
+the match/representation level, not the training recipe. The BC
+pipeline stays (tested; suite 323 passed) — it is the same machinery
+the roadmap's human-play cloning rider will use. Any further Pong round
+should attack the measured failure directly: iterated DAgger with the
+clone (not the teacher) in the loop, labeling the states the clone
+actually visits.
+
 Validation: Pong rules and adapter tests, Gymnasium/SB3 checkers, existing
 Connect Four self-play/tournament tests, web/config/contract regressions,
 TypeScript production build, replay tick/legacy checks, and live browser
