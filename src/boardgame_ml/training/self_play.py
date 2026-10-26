@@ -107,6 +107,17 @@ class SelfPlayConfig:
     #: Max pool snapshots kept on disk/in the registry. The first
     #: snapshot (index 0) is the permanent anchor and never evicts.
     pool_max: int = 24
+    #: Training-only reward shaping for simultaneous games: a bonus
+    #: added to the learner's reward for each of the *learner's own*
+    #: paddle returns (Pong's ``hits`` counter, incremented only by
+    #: paddle contact in ``PongEnv._return_ball``). It is applied
+    #: inside :class:`SimultaneousSelfPlayWrapper` only when the
+    #: wrapper is driven by a pool — i.e. in training. Eval, exam and
+    #: Watch wrappers are built with a fixed opponent and no pool, so
+    #: the bonus structurally cannot leak into measurement. 0.0 (the
+    #: default) disables it exactly: the reward stream is then
+    #: bit-identical to the unshaped game.
+    return_bonus: float = 0.0
     #: Recency weighting: snapshot rank r of n gets recency weight
     #: r**recency_exponent, mixed with a uniform floor (see
     #: OpponentPool.snapshot_weights) so recent opponents dominate
@@ -142,6 +153,11 @@ class SelfPlayConfig:
             raise ValueError("second_seat_share must lie in [0, 1]")
         if self.pool_max < 1:
             raise ValueError("pool_max must be >= 1")
+        if self.return_bonus < 0:
+            raise ValueError(
+                "return_bonus must be >= 0 (it is a bonus, not a "
+                f"penalty), got {self.return_bonus}"
+            )
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> "SelfPlayConfig":
@@ -396,6 +412,13 @@ class SimultaneousSelfPlayWrapper(BaseGameEnv):
         self._fixed_opponent = fixed_opponent
         self._fixed_opponent_kind = fixed_opponent_kind
         self._seat_rng = np.random.default_rng()
+        # Return shaping lives here and only here: the coefficient
+        # comes from the pool's config, and fixed-opponent wrappers
+        # (eval / exam / Watch) have no pool — their bonus is 0.0 by
+        # construction, whatever any training config says.
+        self._return_bonus = (
+            float(pool.config.return_bonus) if pool is not None else 0.0
+        )
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
@@ -414,12 +437,21 @@ class SimultaneousSelfPlayWrapper(BaseGameEnv):
         from boardgame_ml.eval.evaluate import predict_action
         if not self.action_space.contains(action):
             raise ValueError(f"Invalid learner action: {action!r}")
+        # Pong's `hits[seat]` counts that seat's paddle returns (set
+        # in exactly one place, PongEnv._return_ball); its delta over
+        # this joint step is the return event signal. Read it only
+        # when shaping is on, so the disabled path is untouched.
+        hits = getattr(self.env, "hits", None) if self._return_bonus else None
+        hits_before = hits[self.learner_seat] if hits is not None else 0
         other = 1 - self.learner_seat
         reply = predict_action(self._opponent, self.env.player_view(other), self._observations[other])
         actions = [reply, reply]
         actions[self.learner_seat] = int(action)
         self._observations, rewards, terminated, truncated, info = self.env.step(tuple(actions))
-        return self._observations[self.learner_seat], float(rewards[self.learner_seat]), terminated, truncated, self._augment(info)
+        reward = float(rewards[self.learner_seat])
+        if hits is not None:
+            reward += self._return_bonus * (hits[self.learner_seat] - hits_before)
+        return self._observations[self.learner_seat], reward, terminated, truncated, self._augment(info)
 
     def _augment(self, info):
         return dict(info, learner_seat=self.learner_seat, opponent=self.opponent_kind,

@@ -180,8 +180,27 @@ def build_vec_env(
 
 
 def build_model(config: ExperimentConfig, env: gym.Env):
-    """Construct the SB3 model, with config values passed explicitly."""
+    """Construct the SB3 model, with config values passed explicitly.
+
+    With ``config.init_checkpoint`` set, the model is *loaded* from
+    that checkpoint and re-bound to this run's env (warm start); the
+    config's learning rate / gamma / seed / hyperparams are passed to
+    ``load`` as overrides, so the YAML stays authoritative for them
+    instead of silently inheriting the donor run's values. The
+    donor's policy architecture rules — ``policy``/``policy_kwargs``
+    in the new config are ignored on this path.
+    """
     cls = MODEL_CLASSES[config.algorithm]
+    if config.init_checkpoint:
+        return cls.load(
+            config.init_checkpoint,
+            env=env,
+            learning_rate=config.learning_rate,
+            gamma=config.gamma,
+            seed=config.seed,
+            verbose=0,
+            **config.hyperparams,
+        )
     return cls(
         config.policy,
         env,
@@ -283,6 +302,14 @@ def train(
     if config.game in TWO_PLAYER_GAMES and self_play_cfg is None:
         raise ValueError("Two-player training requires a self_play configuration")
 
+    if config.init_checkpoint:
+        ckpt = Path(config.init_checkpoint)
+        if not ckpt.exists() and not ckpt.with_suffix(".zip").exists():
+            raise ValueError(
+                f"init_checkpoint {config.init_checkpoint!r} does not "
+                "exist; warm start needs a real SB3 checkpoint file"
+            )
+
     run_dir = (
         Path(config.output_dir)
         / f"{config.game}_{config.algorithm}_s{config.seed}_{config_hash(config)}"
@@ -360,6 +387,8 @@ def train(
         "final_model": str(run_dir / "final_model.zip"),
         "train_seconds": round(elapsed, 1),
     }
+    if config.init_checkpoint:
+        summary["init_checkpoint"] = config.init_checkpoint
     if self_play_cfg is not None:
         pool_dir = run_dir / "pool"
         summary["pool_snapshots"] = (

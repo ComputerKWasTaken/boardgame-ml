@@ -180,6 +180,38 @@ gradient against predictive heuristic opponents. The named next levers
 are a staged opponent curriculum (random → tracker → intercept) or a
 much larger budget, not further mixture ratios.
 
+## Learning check follow-up 2 — curriculum and shaping (October 26, 2026)
+
+Two framework additions landed first (both general, both off by default):
+`init_checkpoint` warm starts in the training config, and a training-only
+`return_bonus` in the self-play config (paid on the learner's paddle
+returns via `PongEnv.hits`; eval/exam/Watch paths have no pool and receive
+no bonus by construction; coefficient 0 is bit-identical to before).
+
+**Curriculum, no shaping** (seed 0; eval yardstick held at tracker
+throughout): 150k vs random only → 200k vs tracker .8 / snapshots .2
+(warm-started) → 200k vs intercept .6 / snapshots .4 (warm-started). This
+produced the strongest sub-bar play yet: stage-2 best scored 63 points
+across 100 exam matches vs tracker (previous record 35) with the best
+point difference (−4.37), and curriculum best checkpoints reached 63–66%
+wins vs random. But it converted nothing: **0 wins vs tracker and 0
+points vs intercept in 800 exam matches.** Within-stage instability is
+real — stage 2's final model collapsed to 30% vs random while its best
+checkpoint held 63%; best-checkpoint selection caught the good policy.
+
+**Shaping only** (shipped mixture, `return_bonus` 0.01, 250k, seed 0):
+indistinguishable from the unshaped shipped run on every measure — eval
+saturated at −5.00 throughout, exam 55%/47% vs random, 0 wins vs both
+heuristics. At ~10 returns per match the bonus totals ~0.1 against a ±5
+point swing, so as run it tested almost nothing: either the coefficient
+is an order of magnitude too small, or returns are not the bottleneck.
+
+Running total across all Pong experiments: **0 points vs intercept in
+1,200 exam matches.** The bars set in advance (≥50% vs tracker, score vs
+intercept, ≥80% vs random) were missed by both experiments. The shipped
+config remains unchanged; the warm-start and shaping machinery stays,
+tested (suite 320 passed), as available levers.
+
 Validation: Pong rules and adapter tests, Gymnasium/SB3 checkers, existing
 Connect Four self-play/tournament tests, web/config/contract regressions,
 TypeScript production build, replay tick/legacy checks, and live browser

@@ -55,6 +55,14 @@ class ExperimentConfig:
     eval_episodes: int = 500
     eval_freq: int = 20_000  # in total environment timesteps (approx.)
     output_dir: str = "runs"
+    # Warm start (optional): path to an SB3 checkpoint (.zip) whose
+    # weights initialize this run instead of a fresh policy — e.g. a
+    # curriculum stage continuing from the previous stage's
+    # best_model. The config stays authoritative for learning_rate /
+    # gamma / hyperparams (passed to ``load`` as overrides); the run
+    # still trains its full total_timesteps under its own seed and
+    # writes its own run directory. None = train from scratch.
+    init_checkpoint: str | None = None
     # Algorithm-specific kwargs (n_steps, batch_size, buffer_size, ...)
     # passed verbatim to the SB3 constructor.
     hyperparams: dict[str, Any] = field(default_factory=dict)
@@ -77,6 +85,14 @@ class ExperimentConfig:
         if self.game not in GAMES:
             raise ValueError(
                 f"Unknown game {self.game!r}; available: {sorted(GAMES)}"
+            )
+        if self.init_checkpoint is not None and (
+            not isinstance(self.init_checkpoint, str)
+            or not self.init_checkpoint.strip()
+        ):
+            raise ValueError(
+                "init_checkpoint must be a non-empty checkpoint path "
+                f"or None, got {self.init_checkpoint!r}"
             )
         for name in ("total_timesteps", "n_envs", "eval_freq", "eval_episodes"):
             if getattr(self, name) <= 0:
@@ -121,6 +137,7 @@ class ExperimentConfig:
             "eval_episodes": self.eval_episodes,
             "eval_freq": self.eval_freq,
             "output_dir": self.output_dir,
+            "init_checkpoint": self.init_checkpoint,
             "hyperparams": dict(self.hyperparams),
             "self_play": dict(self.self_play),
         }

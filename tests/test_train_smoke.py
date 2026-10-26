@@ -11,11 +11,15 @@ every artifact the pipeline promises.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
+
+import pytest
+import torch
 
 from boardgame_ml.eval.evaluate import evaluate, load_sb3_model
 from boardgame_ml.training.config import ExperimentConfig
-from boardgame_ml.training.train import train
+from boardgame_ml.training.train import build_model, build_vec_env, train
 
 
 def test_train_end_to_end(tmp_path):
@@ -168,3 +172,87 @@ def test_train_writes_diagnostics(tmp_path):
     )
     summary = train(cfg)
     assert Path(summary["best_model"]).exists()
+
+
+def test_warm_start_loads_donor_weights_and_config_overrides(tmp_path):
+    """init_checkpoint: the donor's weights, the new config's scalars.
+
+    A curriculum stage must continue the *donor's* policy (not a
+    fresh one) while the stage's own YAML — learning rate, gamma,
+    hyperparams — stays authoritative over the donor's stored values.
+    """
+    donor_cfg = ExperimentConfig(
+        game="blackjack",
+        algorithm="maskable_ppo",
+        total_timesteps=256,
+        n_envs=2,
+        eval_freq=128,
+        eval_episodes=10,
+        seed=3,
+        output_dir=str(tmp_path / "donor"),
+        learning_rate=3e-4,
+        gamma=0.99,
+    )
+    donor_summary = train(donor_cfg)
+    donor = load_sb3_model(donor_summary["best_model"])
+
+    warm_cfg = ExperimentConfig(
+        game="blackjack",
+        algorithm="maskable_ppo",
+        total_timesteps=256,
+        n_envs=2,
+        eval_freq=128,
+        eval_episodes=10,
+        seed=4,
+        output_dir=str(tmp_path / "warm"),
+        learning_rate=1e-3,
+        gamma=0.5,
+        hyperparams={"n_epochs": 2},
+        init_checkpoint=donor_summary["best_model"],
+    )
+    env = build_vec_env("blackjack", 2, 4)
+    try:
+        model = build_model(warm_cfg, env)
+        # The weights are the donor's — every tensor, exactly.
+        for donor_w, warm_w in zip(
+            donor.policy.state_dict().values(),
+            model.policy.state_dict().values(),
+        ):
+            assert torch.equal(donor_w, warm_w)
+        # ...and not a fresh policy's.
+        fresh = build_model(replace(warm_cfg, init_checkpoint=None), env)
+        assert any(
+            not torch.equal(donor_w, fresh_w)
+            for donor_w, fresh_w in zip(
+                donor.policy.state_dict().values(),
+                fresh.policy.state_dict().values(),
+            )
+        )
+        # Config scalars override the donor's stored values.
+        assert model.gamma == 0.5
+        assert abs(model.lr_schedule(1.0) - 1e-3) < 1e-12
+        assert model.n_epochs == 2
+    finally:
+        env.close()
+
+    # End to end: the warm run trains and records its provenance.
+    summary = train(warm_cfg)
+    assert summary["init_checkpoint"] == donor_summary["best_model"]
+    on_disk = json.loads((Path(summary["run_dir"]) / "summary.json").read_text())
+    assert on_disk["init_checkpoint"] == donor_summary["best_model"]
+    assert on_disk["config"]["init_checkpoint"] == donor_summary["best_model"]
+
+
+def test_warm_start_missing_checkpoint_fails_fast(tmp_path):
+    cfg = ExperimentConfig(
+        game="blackjack",
+        algorithm="maskable_ppo",
+        total_timesteps=128,
+        n_envs=2,
+        eval_freq=64,
+        eval_episodes=5,
+        output_dir=str(tmp_path),
+        init_checkpoint=str(tmp_path / "nope.zip"),
+    )
+    with pytest.raises(ValueError, match="init_checkpoint"):
+        train(cfg)

@@ -15,7 +15,11 @@ from boardgame_ml.envs.simultaneous import predict_joint
 from boardgame_ml.eval.evaluate import resolve_agent
 from boardgame_ml.eval.tournament import play_match, play_pairing
 from boardgame_ml.training.config import ExperimentConfig
-from boardgame_ml.training.self_play import SimultaneousSelfPlayWrapper
+from boardgame_ml.training.self_play import (
+    OpponentPool,
+    SelfPlayConfig,
+    SimultaneousSelfPlayWrapper,
+)
 from boardgame_ml.training.train import train
 from boardgame_ml.web.app import create_app
 from boardgame_ml.web.sessions import SessionManager, WatchSession
@@ -242,6 +246,98 @@ def test_adapter_preserves_nonterminal_point_rewards_for_each_seat(seat):
     assert reward == 1 and not done and info["learner_seat"] == seat
     imminent_miss(raw, conceder=seat)
     assert env.step(1)[1] == -1
+
+
+def _pool_wrapper(return_bonus):
+    """Pool-driven (training-path) wrapper with a deterministic reply.
+
+    The pool samples the random baseline; the reply is then replaced
+    with Idle so trajectories depend only on the env seed and the
+    scripted learner actions — pool sampling is not under test here.
+    """
+    cfg = SelfPlayConfig(
+        snapshot_share=0.0,
+        random_share=1.0,
+        heuristic_share=0.0,
+        heuristic="pong_tracker",
+        return_bonus=return_bonus,
+    )
+    pool = OpponentPool("pong", cfg, seed=5)
+    raw = PongEnv()
+    env = SimultaneousSelfPlayWrapper(raw, pool)
+    env.reset(seed=3)
+    env._opponent = Idle()
+    raw.serve_remaining = 0.0
+    return env, raw
+
+
+def _imminent_return(raw, seat):
+    """Ball a fraction of a step from `seat`'s paddle face, centered."""
+    face = raw.paddle_inset + raw.paddle_width / 2 + raw.ball_radius
+    if seat == 0:
+        raw.ball_x, raw.ball_vx = face + 4.0, -raw.ball_speed
+    else:
+        raw.ball_x, raw.ball_vx = raw.width - face - 4.0, raw.ball_speed
+    raw.ball_y, raw.ball_vy = raw.paddle_y[seat], 0.0
+
+
+@pytest.mark.parametrize("seat", [0, 1])
+def test_return_bonus_fires_on_learner_return_only(seat):
+    env, raw = _pool_wrapper(0.5)
+    env.learner_seat = seat
+    _imminent_return(raw, seat)
+    _, reward, *_ = env.step(1)
+    assert raw.hits[seat] == 1  # the learner's paddle returned the ball
+    assert reward == 0.5  # no point scored — the whole reward is the bonus
+
+    env, raw = _pool_wrapper(0.5)
+    env.learner_seat = seat
+    other = 1 - seat
+    _imminent_return(raw, other)
+    _, reward, *_ = env.step(1)
+    assert raw.hits[other] == 1  # the opponent's return happened...
+    assert reward == 0.0  # ...and paid the learner nothing
+
+
+def test_return_bonus_never_fires_in_fixed_opponent_wrapper():
+    """Eval/exam/Watch wrappers hold no pool, so shaping cannot leak."""
+    raw = PongEnv()
+    env = SimultaneousSelfPlayWrapper(raw, fixed_opponent=Idle())
+    env.reset(seed=3)
+    env.learner_seat = 0
+    raw.serve_remaining = 0.0
+    _imminent_return(raw, 0)
+    _, reward, *_ = env.step(1)
+    assert raw.hits[0] == 1
+    assert env._return_bonus == 0.0
+    assert reward == 0.0
+
+
+def test_return_bonus_zero_is_bit_identical():
+    """Coefficient 0 reproduces today's reward stream exactly, and a
+    positive coefficient changes only steps where the learner returned
+    the ball, by exactly coefficient x returns."""
+
+    def scripted_idle_match(return_bonus):
+        env, raw = _pool_wrapper(return_bonus)
+        rewards = []
+        for _ in range(1800):  # a full 90 s match at 20 decisions/s
+            _, reward, done, _, _ = env.step(1)
+            rewards.append(reward)
+            if done:
+                break
+        return rewards, raw.hits[env.learner_seat], env.learner_seat
+
+    plain, hits, seat = scripted_idle_match(0.0)
+    shaped, hits2, seat2 = scripted_idle_match(0.5)
+    assert (hits, seat) == (hits2, seat2)  # rewards never feed dynamics
+    assert hits >= 1  # the scripted match really contains learner returns
+    assert len(plain) == len(shaped)
+    for before, after in zip(plain, shaped):
+        delta = after - before
+        assert delta >= 0.0
+        assert delta == pytest.approx(0.5 * round(delta / 0.5))
+    assert sum(shaped) - sum(plain) == pytest.approx(0.5 * hits)
 
 
 def test_joint_prediction_reads_identical_pre_step_state():

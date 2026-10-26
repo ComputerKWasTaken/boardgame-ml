@@ -89,6 +89,19 @@ def test_parameterization_fields_roundtrip(tmp_path):
     assert as_dict["env_kwargs"] == {"num_players": 2}
 
 
+def test_init_checkpoint_defaults_none_and_round_trips(tmp_path):
+    """Warm start is opt-in: absent/None by default, parsed when set."""
+    assert ExperimentConfig(game="blackjack").init_checkpoint is None
+    assert ExperimentConfig(game="blackjack").to_dict()["init_checkpoint"] is None
+    path = tmp_path / "warm.yaml"
+    path.write_text("game: blackjack\ninit_checkpoint: runs/x/best_model.zip\n")
+    cfg = ExperimentConfig.from_yaml(path)
+    assert cfg.init_checkpoint == "runs/x/best_model.zip"
+    assert cfg.to_dict()["init_checkpoint"] == "runs/x/best_model.zip"
+    with pytest.raises(ValueError, match="init_checkpoint"):
+        ExperimentConfig(game="blackjack", init_checkpoint="  ")
+
+
 def test_cnn_policy_reaches_model(tmp_path):
     """A YAML naming CnnPolicy must construct a CNN policy class.
 
