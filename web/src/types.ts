@@ -216,6 +216,18 @@ export interface PongRender {
   end_reason: string | null;
 }
 
+export interface Game2048Render {
+  game: "game2048";
+  text?: string;
+  board: number[][]; // tile exponents per cell: 0 = empty, k = tile 2**k
+  score: number;
+  max_tile: number;
+  moves: number;
+  game_over: boolean;
+  spawned: number[] | null; // [row, col, exponent] of the latest spawn
+  last_move: { action: number; points: number } | null;
+}
+
 export type RenderState =
   | PongRender
   | BlackjackRender
@@ -224,6 +236,7 @@ export type RenderState =
   | FlappyRender
   | RacingRender
   | ConnectFourRender
+  | Game2048Render
   | { game: string; text?: string };
 
 export interface SessionStats {

@@ -1,0 +1,44 @@
+# 2048 — MaskablePPO, the roadmap item-1 phase-1 run.
+#
+# 2048 is the conclusive-answers game: single player, stochastic
+# spawns, no seat asterisk. The bar is fixed by the roadmap: beat
+# the greedy_1ply yardstick's mean score over >= 1,000 eval games
+# (baselines calibrated alongside this config: greedy ~4.5k,
+# expectimax ~19k, random ~1.2k — full tables in the milestone
+# report). If PPO plateaus below greedy, phase 2 is the classic
+# afterstate-TD n-tuple agent; this config is the honest SB3 shot.
+#
+# One-hot (16, 4, 4) observations like Match 3's, so the same flat
+# MLP treatment: 256/256 trunk, maskable PPO, masks on (a move that
+# doesn't change the board is illegal — an unmasked agent would
+# burn a large share of its actions on no-ops).
+#
+# Episodes are long (~1,000+ moves for a competent policy, vs
+# Match 3's 20-move cap), so: n_steps 256 x 8 envs = 2,048-step
+# rollouts still hold several full episodes; gamma 0.995 (a ~200-
+# move horizon — 2048's score is back-loaded, and the standard
+# 0.99's ~100-move horizon collapses play toward the greedy
+# yardstick it has to beat); eval_episodes 20 with eval_freq
+# 50,000 keeps MaskableEvalCallback's cost sane (each eval episode
+# is a full game, ~30x the steps of a Match 3 one).
+game: game2048
+algorithm: maskable_ppo
+total_timesteps: 1000000
+seed: 0
+policy: MlpPolicy
+policy_kwargs:
+  net_arch: [256, 256]
+n_envs: 8
+learning_rate: 0.0003
+# gamma 0.995: a ~200-move horizon — 2048's score is back-loaded,
+# and the standard 0.99's ~100-move horizon collapses play toward
+# the greedy yardstick it has to beat.
+gamma: 0.995
+eval_episodes: 20
+eval_freq: 50000
+hyperparams:
+  n_steps: 256
+  batch_size: 512
+  n_epochs: 4
+  gae_lambda: 0.95
+  ent_coef: 0.01

@@ -26,6 +26,13 @@ framework's first custom algorithm beside the SB3 registry. Acceptance:
 beat greedy 1-ply on mean score over ≥1,000 games; report the tile-reached
 distribution, not just the mean. **Cost: M. Unlocks: the custom-algorithm seam.**
 
+**Status: DONE 2026-10-26.** MaskablePPO's best checkpoint (400k of
+1M) beat greedy_1ply 3,354 vs 3,073 over 1,000 games; the run plateaus
+and regresses after its peak (final model 1,511), and expectimax
+(17,388; 28% reach 2048) shows how far search still outruns model-free
+learning here. The n-tuple agent was not needed to clear the bar; the
+custom-algorithm seam remains unbuilt.
+
 ### 2. Reversi, then AlphaZero-lite — the league's fair trial, then its ceiling
 Reversi ports onto the existing two-player contract untouched, with a
 first-player edge small enough to measure instead of drowning in. It answers

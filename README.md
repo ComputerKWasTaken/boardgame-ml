@@ -270,6 +270,21 @@ M9 asks the harder question with a second family:
   disciplines (multi-seed replication, benchmark calibration) are
   now established practice.
 
+## Milestone 11 — 2048 (the conclusive-answers game)
+
+* **The game** — 2048 behind the standard contract: exponent board,
+  masked illegal (non-changing) moves, the game's own merge score as
+  reward, per-cell one-hot observation; one slide/merge engine in two
+  cross-verified forms (array + 64-bit row-table). Cockpit support:
+  Train presets and an SVG Watch renderer with the classic palette.
+* **The verdict** — MaskablePPO (1M steps) beats the greedy 1-ply bar
+  at its 400k best checkpoint, **3,354 vs 3,073** mean over 1,000
+  seed-matched games, then plateaus and regresses (final model
+  1,511); the expectimax yardstick (17,388; 28% reach the 2048 tile)
+  measures how far search still outruns model-free learning here.
+  The n-tuple custom algorithm was gated on PPO missing and did not
+  run. Full tables under "M11 results" below.
+
 
 
 ```bash
@@ -878,6 +893,23 @@ game as first player, none as second, vs both yardsticks). Seed 2
 beats greedy from both seats and draws minimax 200/200 as second
 player — the second-seat defense deficit is bimodal across seeds,
 not a recipe invariant. **Claim holds, with that caveat.**
+
+## M11 results — 2048 (seed-matched protocol: episode i on seed 1000+i)
+
+| Agent | Games | Mean | Median | ≥512 | ≥1024 | ≥2048 |
+|---|---|---|---|---|---|---|
+| random | 1,000 | 1,085.7 | 1,048 | 0.0% | 0% | 0% |
+| greedy_1ply (the bar) | 1,000 | 3,073.0 | 2,944 | 12.2% | 0% | 0% |
+| MaskablePPO best (400k of 1M) | 1,000 | **3,354.0** | 3,124 | 19.1% | 0.4% | 0% |
+| MaskablePPO final (1M) | 1,000 | 1,510.5 | 1,376 | 0.7% | 0% | 0% |
+| expectimax (yardstick) | 120 | 17,387.5 | 15,918 | 99.2% | 82.5% | 28.3% |
+
+The best checkpoint beats greedy by +281 (+9.1%, z ≈ 3.8) and holds
+the only non-expectimax 1024 tiles (4 games); the run's final model
+regresses below greedy, so the shipped artifact is the best-by-eval
+checkpoint, per doctrine. The callback's 3,925 peak reading is a
+winner's-curse figure (20-game selection points); the verdict rests
+on the 1,000-game protocol.
 
 Chores: `summary.json` backfilled (marked as such, unsupported
 fields null) for the M7 SAC generalist run; M7/M9 exam papers

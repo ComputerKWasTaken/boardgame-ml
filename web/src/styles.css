@@ -712,6 +712,90 @@ th {
   stroke-width: 2;
 }
 
+/* 2048 board (SVG grid; tile colors follow the classic palette,
+   keyed by exponent: class g2048-e<k> is the tile 2**k). */
+.game2048-svg {
+  width: 100%;
+  max-width: 340px;
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.g2048-bg {
+  fill: #161c26;
+}
+
+.g2048-tile {
+  stroke: none;
+}
+
+.g2048-e0 {
+  fill: #232b38;
+}
+
+.g2048-e1 {
+  fill: #eee4da;
+}
+
+.g2048-e2 {
+  fill: #ede0c8;
+}
+
+.g2048-e3 {
+  fill: #f2b179;
+}
+
+.g2048-e4 {
+  fill: #f59563;
+}
+
+.g2048-e5 {
+  fill: #f67c5f;
+}
+
+.g2048-e6 {
+  fill: #f65e3b;
+}
+
+.g2048-e7 {
+  fill: #edcf72;
+}
+
+.g2048-e8 {
+  fill: #edcc61;
+}
+
+.g2048-e9 {
+  fill: #edc850;
+}
+
+.g2048-e10 {
+  fill: #edc53f;
+}
+
+.g2048-e11 {
+  fill: #edc22e;
+}
+
+.g2048-super {
+  fill: #3c3a32;
+}
+
+.g2048-spawned {
+  stroke: #58a6ff;
+  stroke-width: 3;
+}
+
+.g2048-label {
+  fill: #f9f6f2;
+  font-weight: 700;
+}
+
+.g2048-label.dark {
+  fill: #776e65;
+}
+
 /* Racing scene (SVG top-down, world coords flipped by the component). */
 .racing-svg {
   width: 100%;

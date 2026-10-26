@@ -114,14 +114,33 @@ GAME_INFO: dict[str, dict[str, str]] = {
         "games that end decisively — head-to-head strength lives in "
         "the tournament table (README), not on this card.",
     },
+    "game2048": {
+        "display_name": "2048",
+        "observation": (
+            "Per-cell one-hot over tile exponents 0-15: (16, 4, 4)"
+        ),
+        "blurb": "The classic sliding-tile game: slide and merge "
+        "equal tiles (once per tile per move), a 2 (90%) or 4 (10%) "
+        "spawns after every board-changing move, and the episode "
+        "ends when no move changes the board. The reward is the "
+        "game's own score, so the episode return is the final 2048 "
+        "score. The greedy_1ply row is the roadmap's bar: the "
+        "strongest agent that looks exactly one ply deep.",
+    },
 }
 
 #: Baseline reference evaluations on the Games card. Every game is
 #: measured over 1,000 episodes except racing (continuous episodes
-#: are long) and connect_four (each "episode" is a full two-player
+#: are long), connect_four (each "episode" is a full two-player
 #: self-match, and minimax moves are alpha-beta searches — 10
-#: matches keep the card responsive; the count ships in the payload).
-_BASELINE_EPISODES: dict[str, int] = {"racing": 100, "connect_four": 10}
+#: matches keep the card responsive; the count ships in the payload),
+#: and game2048 (full games run ~1,000 moves and the expectimax
+#: yardstick searches seconds per game — 10 games likewise).
+_BASELINE_EPISODES: dict[str, int] = {
+    "racing": 100,
+    "connect_four": 10,
+    "game2048": 10,
+}
 
 _BASE_STEP_SECONDS = 0.9  # watch-mode step interval at speed 1
 

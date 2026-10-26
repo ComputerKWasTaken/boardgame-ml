@@ -63,13 +63,15 @@ PRESETS: dict[str, dict[str, dict[str, int]]] = {
             "racing": 250_000,
             "racing:sac": 50_000,
             "gym_classic": 25_000,
+            "game2048": 100_000,
         },
         "eval_freq": {
             "default": 5_000,
             "match3": 25_000,
             "racing": 10_000,
+            "game2048": 25_000,
         },
-            "eval_episodes": {"default": 200, "racing": 10, "connect_four": 40},
+            "eval_episodes": {"default": 200, "racing": 10, "connect_four": 40, "game2048": 20},
     },
     "standard": {
         "timesteps": {
@@ -82,6 +84,7 @@ PRESETS: dict[str, dict[str, dict[str, int]]] = {
             "racing": 600_000,
             "racing:sac": 150_000,
             "gym_classic": 100_000,
+            "game2048": 1_000_000,
         },
         "eval_freq": {
             "default": 10_000,
@@ -92,6 +95,7 @@ PRESETS: dict[str, dict[str, dict[str, int]]] = {
             "connect_four": 25_000,
             "racing": 25_000,
             "racing:sac": 10_000,
+            "game2048": 50_000,
         },
         "eval_episodes": {
             "default": 500,
@@ -99,6 +103,7 @@ PRESETS: dict[str, dict[str, dict[str, int]]] = {
             "flappy": 200,
             "connect_four": 100,
             "racing": 10,
+            "game2048": 20,
         },
     },
     "long": {
@@ -112,6 +117,7 @@ PRESETS: dict[str, dict[str, dict[str, int]]] = {
             "racing": 1_500_000,
             "racing:sac": 300_000,
             "gym_classic": 1_000_000,
+            "game2048": 2_000_000,
         },
         "eval_freq": {
             "default": 10_000,
@@ -122,6 +128,7 @@ PRESETS: dict[str, dict[str, dict[str, int]]] = {
             "connect_four": 25_000,
             "racing": 25_000,
             "racing:sac": 10_000,
+            "game2048": 50_000,
         },
         "eval_episodes": {
             "default": 500,
@@ -129,6 +136,7 @@ PRESETS: dict[str, dict[str, dict[str, int]]] = {
             "flappy": 200,
             "connect_four": 100,
             "racing": 10,
+            "game2048": 20,
         },
     },
 }
@@ -313,6 +321,22 @@ PAIR_DEFAULTS: dict[tuple[str, str], dict[str, Any]] = {
             "learning_starts": 5000,
             "train_freq": 1,
             "gradient_steps": 1,
+        },
+    },
+    ("game2048", "maskable_ppo"): {
+        # gamma 0.995 is the shipped config's planning horizon
+        # (~200 moves; 2048's score is back-loaded — see the YAML).
+        "gamma": 0.995,
+        "policy": "MlpPolicy",
+        "policy_kwargs": {"net_arch": [256, 256]},
+        "n_envs": 8,
+        "learning_rate": 3e-4,
+        "hyperparams": {
+            "n_steps": 256,
+            "batch_size": 512,
+            "n_epochs": 4,
+            "ent_coef": 0.01,
+            "gae_lambda": 0.95,
         },
     },
 }

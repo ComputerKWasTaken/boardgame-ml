@@ -4,6 +4,7 @@ import type {
   BlackjackRender,
   ConnectFourRender,
   FlappyRender,
+  Game2048Render,
   HolRender,
   Match3Render,
   RacingRender,
@@ -370,6 +371,83 @@ function PongBoard({ render: r }: { render: PongRender }) {
   </div>;
 }
 
+export function Game2048Board({ render }: { render: Game2048Render }) {
+  // Board geometry: a 400x400 canvas, 10px rim, 8px gutters.
+  const size = 400;
+  const pad = 10;
+  const gap = 8;
+  const cell = (size - 2 * pad - 3 * gap) / 4;
+  const spawnedKey = render.spawned
+    ? `${render.spawned[0]},${render.spawned[1]}`
+    : null;
+  const labelSize = (value: number) => {
+    const digits = String(value).length;
+    return digits <= 2 ? 34 : digits === 3 ? 28 : digits === 4 ? 22 : 17;
+  };
+  return (
+    <div className="board game2048-board">
+      <div className="match3-header">
+        <div>
+          Score <strong>{render.score}</strong>
+        </div>
+        <div>
+          Max tile <strong>{render.max_tile}</strong>
+        </div>
+        <div>
+          Moves <strong>{render.moves}</strong>
+        </div>
+        {render.game_over && <div className="badge">Game over</div>}
+      </div>
+      <svg
+        className="game2048-svg"
+        viewBox={`0 0 ${size} ${size}`}
+        role="img"
+        aria-label="2048 board"
+      >
+        <rect x={0} y={0} width={size} height={size} className="g2048-bg" />
+        {render.board.map((row, r) =>
+          row.map((e, c) => {
+            const x = pad + c * (cell + gap);
+            const y = pad + r * (cell + gap);
+            const cls =
+              e === 0
+                ? "g2048-tile g2048-e0"
+                : e <= 11
+                  ? `g2048-tile g2048-e${e}`
+                  : "g2048-tile g2048-super";
+            return (
+              <g key={`${r}-${c}`}>
+                <rect
+                  x={x}
+                  y={y}
+                  width={cell}
+                  height={cell}
+                  rx={6}
+                  className={
+                    cls + (spawnedKey === `${r},${c}` ? " g2048-spawned" : "")
+                  }
+                />
+                {e > 0 && (
+                  <text
+                    x={x + cell / 2}
+                    y={y + cell / 2}
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    fontSize={labelSize(2 ** e)}
+                    className={e <= 2 ? "g2048-label dark" : "g2048-label"}
+                  >
+                    {2 ** e}
+                  </text>
+                )}
+              </g>
+            );
+          }),
+        )}
+      </svg>
+    </div>
+  );
+}
+
 export default function Board({ render }: { render: RenderState }) {
   if (render.game === "pong") return <PongBoard render={render as PongRender} />;
   if (render.game === "blackjack") {
@@ -389,6 +467,9 @@ export default function Board({ render }: { render: RenderState }) {
   }
   if (render.game === "connect_four") {
     return <ConnectFourBoard render={render as ConnectFourRender} />;
+  }
+  if (render.game === "game2048") {
+    return <Game2048Board render={render as Game2048Render} />;
   }
   return (
     <div className="board">

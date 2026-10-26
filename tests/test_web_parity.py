@@ -298,7 +298,12 @@ def test_meta_endpoint_exposes_effective_settings(tmp_path):
         "racing",
         "connect_four",
         "pong",
+        "game2048",
     }
+    assert meta["game_algorithms"]["game2048"] == ["maskable_ppo"]
+    g48 = meta["pair_defaults"]["game2048:maskable_ppo"]
+    assert g48["gamma"] == 0.995
+    assert g48["n_envs"] == 8
     assert meta["default_algorithms"]["racing"] == "sac"
     sac = meta["pair_defaults"]["racing:sac"]
     assert sac["gamma"] == 0.995

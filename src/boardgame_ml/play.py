@@ -18,6 +18,7 @@ import numpy as np
 
 from boardgame_ml.envs import make_env
 from boardgame_ml.envs import match3 as _m3
+from boardgame_ml.envs.game2048 import ACTION_NAMES_2048
 from boardgame_ml.envs.pong import ACTION_NAMES as PONG_ACTION_NAMES
 from boardgame_ml.envs.simultaneous import SimultaneousTwoPlayerEnv, predict_joint
 from boardgame_ml.eval.evaluate import predict_action, resolve_agent
@@ -41,6 +42,7 @@ ACTION_NAMES = {
     "match3": _match3_action_names(),
     "flappy": {0: "GLIDE", 1: "FLAP"},
     "connect_four": {i: f"column {i + 1}" for i in range(7)},
+    "game2048": ACTION_NAMES_2048,
 }
 
 

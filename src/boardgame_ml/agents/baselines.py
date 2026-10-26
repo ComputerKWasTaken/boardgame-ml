@@ -17,6 +17,7 @@ from boardgame_ml.envs.base import BaseGameEnv
 from boardgame_ml.envs import blackjack as bj
 from boardgame_ml.envs import connect_four as c4
 from boardgame_ml.envs import flappy as fb
+from boardgame_ml.envs import game2048 as g48
 from boardgame_ml.envs import higher_or_lower as hol
 from boardgame_ml.envs import match3 as m3
 from boardgame_ml.envs import racing as rc
@@ -47,6 +48,7 @@ class RandomAgent(BaselineAgent):
         "racing",
         "connect_four",
         "pong",
+        "game2048",
     )
 
     def __init__(self, seed: int | None = None) -> None:
@@ -162,6 +164,222 @@ class GreedyMatch3Agent(BaselineAgent):
                 best_points = points
                 best_action = action
         assert best_action is not None  # env guarantees >= 1 legal move
+        return best_action
+
+
+class Greedy2048Agent(BaselineAgent):
+    """1-ply greedy agent for 2048 — the milestone's acceptance bar.
+
+    For every legal move, simulate the slide+merge (the env module's
+    int engine — the same ``slide_line`` rules the env plays by)
+    and take the move with the largest **immediate score gain**.
+    Nothing else is valued: not empty cells, not tile position, not
+    what the spawn might do. That narrowness is the point — this is
+    the strongest agent that looks exactly one ply deep, and the
+    roadmap's bar is stated against it.
+
+    Deterministic: actions are scanned in ascending index order and
+    only a strictly higher gain replaces the incumbent, so ties
+    break toward the lowest action index (up < right < down < left).
+    """
+
+    name = "greedy_1ply"
+    games = ("game2048",)
+
+    def select_action(self, env: BaseGameEnv, obs: np.ndarray) -> int:
+        assert isinstance(env, g48.Game2048Env)
+        x = g48.board_to_int(env.board)
+        best_action: int | None = None
+        best_gain = -1
+        for action in range(4):
+            _new_x, gain, changed = g48.move_int(x, action)
+            if changed and gain > best_gain:
+                best_gain = gain
+                best_action = action
+        assert best_action is not None  # decision states have a legal move
+        return best_action
+
+
+#: Snake path over the 4x4 board for the expectimax heuristic: the
+#: largest weight sits in the top-left corner and weights decrease
+#: geometrically (ratio 1/4 per step) along the snake, so the
+#: heuristic prices a board by how well its big tiles are stacked
+#: along one monotone path — the classic gradient evaluation.
+_SNAKE_CELLS = (
+    (0, 0), (0, 1), (0, 2), (0, 3),
+    (1, 3), (1, 2), (1, 1), (1, 0),
+    (2, 0), (2, 1), (2, 2), (2, 3),
+    (3, 3), (3, 2), (3, 1), (3, 0),
+)
+_SNAKE_W = np.zeros((4, 4))
+for _p, (_r, _c) in enumerate(_SNAKE_CELLS):
+    _SNAKE_W[_r, _c] = 0.25 ** _p
+
+_HEUR_TABLES: list[list[float]] | None = None
+
+
+def _heur_tables() -> list[list[float]]:
+    """Per-row-position heuristic tables over all 2**16 rows.
+
+    ``tables[r][row]`` is row ``r``'s total contribution to the
+    expectimax heuristic: the snake-weighted sum of its tiles'
+    *values*, plus the empty-cell bonus for its empty cells (the
+    bonus is per-cell, so it folds into the same tables — a board's
+    heuristic is then exactly 4 lookups). Built lazily, once.
+    """
+    global _HEUR_TABLES
+    if _HEUR_TABLES is not None:
+        return _HEUR_TABLES
+    tables: list[list[float]] = []
+    for r in range(4):
+        weights = _SNAKE_W[r]
+        table = [0.0] * 65536
+        for row in range(65536):
+            total = 0.0
+            for c in range(4):
+                e = (row >> (4 * c)) & 0xF
+                if e:
+                    total += weights[c] * float(1 << e)
+                else:
+                    total += Expectimax2048Agent.EMPTY_WEIGHT
+            table[row] = total
+        tables.append(table)
+    _HEUR_TABLES = tables
+    return tables
+
+
+class Expectimax2048Agent(BaselineAgent):
+    """Depth-limited expectimax for 2048 — the strong yardstick.
+
+    Expectimax over the game's own chance structure: move nodes
+    maximize, chance nodes average over the actual spawn
+    distribution (uniform empty cell; a 2 at 0.9, a 4 at 0.1 — no
+    sampling, no pruned outcomes). One frontier convention keeps
+    pure-Python search affordable: at depth 0 the position the
+    last move produced is read directly, without enumerating the
+    spawn that follows it (that enumeration would multiply leaf
+    reads by ~2 x empties for a second-order correction — a
+    spawn's heuristic effect is mostly the lost empty-cell bonus,
+    roughly uniform across candidate moves). Every enumerated
+    chance node is exact. Node values are in the game's score
+    units: a move contributes its merge gain plus the expected
+    value of the resulting position; a position with no legal
+    moves is worth exactly 0 future points.
+
+    Leaves use a fixed, documented heuristic (never tuned against
+    the results it judges):
+
+    * **Positional asset value** — the snake-gradient sum above:
+      each tile contributes its value weighted by 0.25**(its
+      position along the snake from the top-left corner). The sum
+      is dominated by the largest tiles sitting early on the snake,
+      which prices "big tile cornered, board monotone" in roughly
+      score units (comparable to the gains the search adds).
+    * **Breathing room** — +100 per empty cell (a frozen round
+      number: about the merge value one more empty cell keeps
+      reachable over the horizon), folded into the same tables.
+
+    Depth is in *move plies* and adapts to the root's empty count,
+    because chance branching (an outcome per empty cell) is what
+    costs: >= 4 empties -> depth 2, <= 3 empties -> depth 3 (so few
+    spawn outcomes remain that the extra ply is affordable exactly
+    when the position is most forcing). A deterministic node budget
+    (``NODE_BUDGET`` expansions per decision) caps the worst case:
+    past it, frontier move nodes return the heuristic instead of
+    expanding. A transposition cache keyed by (board, depth)
+    persists across decisions within a game.
+
+    Deterministic: fixed action order, strict improvement, no RNG.
+    Ties break toward the lowest action index.
+    """
+
+    name = "expectimax"
+    games = ("game2048",)
+
+    EMPTY_WEIGHT = 100.0
+    NODE_BUDGET = 40_000
+    _CACHE_MAX = 300_000
+
+    def __init__(self) -> None:
+        self._cache: dict[tuple[int, int], float] = {}
+        self._nodes = 0
+
+    # -- heuristic ------------------------------------------------------
+    @staticmethod
+    def heuristic(x: int) -> float:
+        tables = _heur_tables()
+        return (
+            tables[0][x & 0xFFFF]
+            + tables[1][(x >> 16) & 0xFFFF]
+            + tables[2][(x >> 32) & 0xFFFF]
+            + tables[3][(x >> 48) & 0xFFFF]
+        )
+
+    # -- search -----------------------------------------------------------
+    @staticmethod
+    def _depth_for(x: int) -> int:
+        empties = len(g48.empty_cells_int(x))
+        return 2 if empties >= 4 else 3
+
+    def _value(self, x: int, depth: int) -> float:
+        """Expected future score from board ``x``, ``depth`` plies deep."""
+        key = (x, depth)
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        if depth == 0:
+            return self.heuristic(x)
+        self._nodes += 1
+        if self._nodes > self.NODE_BUDGET:
+            return self.heuristic(x)
+        best: float | None = None
+        for action in range(4):
+            new_x, gain, changed = g48.move_int(x, action)
+            if not changed:
+                continue
+            value = gain + self._chance_value(new_x, depth - 1)
+            if best is None or value > best:
+                best = value
+        result = 0.0 if best is None else best  # no legal move: terminal
+        if len(self._cache) < self._CACHE_MAX:
+            self._cache[key] = result
+        return result
+
+    def _chance_value(self, x: int, depth: int) -> float:
+        """Expected ``_value`` after one random spawn on ``x``.
+
+        Frontier convention: at ``depth == 0`` the spawn is not
+        enumerated — the heuristic reads the position the move
+        produced (see the class docstring). Every chance node at
+        depth >= 1 averages the full spawn distribution exactly.
+        """
+        if depth == 0:
+            return self.heuristic(x)
+        cells = g48.empty_cells_int(x)
+        if not cells:
+            return self._value(x, depth)
+        total = 0.0
+        for shift in cells:
+            total += 0.9 * self._value(x | (1 << shift), depth)
+            total += 0.1 * self._value(x | (2 << shift), depth)
+        return total / len(cells)
+
+    def select_action(self, env: BaseGameEnv, obs: np.ndarray) -> int:
+        assert isinstance(env, g48.Game2048Env)
+        x = g48.board_to_int(env.board)
+        self._nodes = 0
+        depth = self._depth_for(x)
+        best_action: int | None = None
+        best_value = -float("inf")
+        for action in range(4):
+            new_x, gain, changed = g48.move_int(x, action)
+            if not changed:
+                continue
+            value = gain + self._chance_value(new_x, depth - 1)
+            if value > best_value:
+                best_value = value
+                best_action = action
+        assert best_action is not None  # decision states have a legal move
         return best_action
 
 
@@ -645,6 +863,8 @@ BASELINES: dict[str, type[BaselineAgent]] = {
         BasicStrategyAgent,
         ProbabilityAgent,
         GreedyMatch3Agent,
+        Greedy2048Agent,
+        Expectimax2048Agent,
         FlappyHeuristicAgent,
         RacingHeuristicAgent,
         PongTrackerAgent,

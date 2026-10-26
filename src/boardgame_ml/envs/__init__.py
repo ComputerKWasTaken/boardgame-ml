@@ -8,6 +8,7 @@ from boardgame_ml.envs.base import BaseGameEnv
 from boardgame_ml.envs.blackjack import BlackjackEnv
 from boardgame_ml.envs.connect_four import ConnectFourEnv
 from boardgame_ml.envs.flappy import FlappyBirdEnv
+from boardgame_ml.envs.game2048 import Game2048Env
 from boardgame_ml.envs.gym_classic import GymClassicEnv
 from boardgame_ml.envs.higher_or_lower import HigherOrLowerEnv
 from boardgame_ml.envs.match3 import Match3Env
@@ -24,6 +25,7 @@ GAMES: dict[str, type[BaseGameEnv]] = {
     "racing": RacingEnv,
     "connect_four": ConnectFourEnv,
     "pong": PongEnv,
+    "game2048": Game2048Env,
     # Not a home game: a Gymnasium classic (env_id via env_kwargs)
     # admitted through the GymClassicEnv shim so train() can be
     # calibrated against published Zoo results (M10). It lives in
@@ -64,6 +66,7 @@ __all__ = [
     "FlappyBirdEnv",
     "RacingEnv",
     "ConnectFourEnv",
+    "Game2048Env",
     "GymClassicEnv",
     "GAMES",
     "TWO_PLAYER_GAMES",

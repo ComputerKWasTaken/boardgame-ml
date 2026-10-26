@@ -1162,6 +1162,39 @@ number above was re-verified against the final on-disk artifacts
 before being written here — monitoring snapshots taken mid-flight
 proved unreliable across restarts and were never cited.
 
+## 2048 (M11) — the conclusive-answers game
+
+M11 adds 2048, the roadmap's first shortlist item: single-player,
+stochastic spawns, no opponent — a result that cannot be asterisked.
+The env stores exponents, not tile values; one slide/merge engine
+exists in two cross-verified forms (an array engine the env plays by,
+and a 64-bit int / row-table engine the baselines search with —
+equivalence is test-pinned over all 65,536 row patterns). A move that
+does not change the board is illegal and masked; unmasked attempts are
+rejected no-ops, per the Match 3 contract. Reward is the game's own
+merge score. Observation is per-cell one-hot over exponents 0–15.
+
+Baselines are the point of the milestone: `greedy_1ply` (max immediate
+gain) is the acceptance bar, and a depth-adaptive `expectimax`
+(2 plies at ≥4 empty cells, 3 at ≤3; frozen snake-gradient positional
+heuristic + 100/empty cell) is the yardstick — 17,388 mean over 120
+games, 82.5% reaching 1024 and 28.3% reaching 2048, at ~3.2 s/game.
+
+MaskablePPO (1M steps, seed 0, γ=0.995) **clears the bar at its peak
+and then gives it back**: the eval curve rises to a best checkpoint at
+400k whose honest 1,000-game mean is **3,354 vs greedy's 3,073**
+(+9.1%; only non-expectimax 1024 tiles in the field), then declines
+sustainedly to a final model at 1,511 — below greedy. Two doctrines
+did their jobs here. Best-by-eval selection is what makes the claim
+true at all (the shipped artifact is the 400k checkpoint, and saying
+"PPO learns 2048 stably" would be false). And the verdict rests on
+the 1,000-game protocol, not the callback's 3,925 — a winner's-curse
+figure across 20 selection points, recorded here as the cautionary
+example. Phase 2 (the afterstate-TD n-tuple agent) was gated on
+Phase 1 missing the bar and did not run; the custom-algorithm seam
+remains unbuilt, and expectimax's 5.7× margin stands as the measured
+gap between search and model-free learning on this game. 378 tests.
+
 * More games behind the same contract (the real test of modularity)
   — Match 3 landed in M3 (see above); Flappy Bird landed in M4 as
   the first continuous-dynamics game (see "Continuous games");

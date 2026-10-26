@@ -82,6 +82,7 @@ def test_games_endpoint(client):
         "connect_four",
         "pong",
         "gym_classic",
+        "game2048",
     }
     bj = by_name["blackjack"]
     assert [a["name"] for a in bj["actions"]] == ["STAND", "HIT"]
@@ -140,6 +141,35 @@ def test_games_endpoint(client):
         # whichever seat made the winning move.
         assert b["episodes"] == 10
         assert 0.0 <= b["mean_return"] <= 1.0
+
+    g48 = by_name["game2048"]
+    assert g48["display_name"] == "2048"
+    assert [a["name"] for a in g48["actions"]] == [
+        "UP",
+        "RIGHT",
+        "DOWN",
+        "LEFT",
+    ]
+    assert {b["name"] for b in g48["baselines"]} == {
+        "random",
+        "greedy_1ply",
+        "expectimax",
+    }
+    for b in g48["baselines"]:
+        # Full 2048 games run ~1,000 moves and expectimax searches
+        # seconds per game, so the card's sample is 10 games (see
+        # web/app.py). The return is the game's own score.
+        assert b["episodes"] == 10
+        assert b["mean_return"] > 0
+    by_baseline = {b["name"]: b for b in g48["baselines"]}
+    # The yardstick ordering, measured at calibration scale (1,000+
+    # games): expectimax >> greedy_1ply >> random, each by ~3-4x.
+    # 10 games is a small sample, but the gaps are wide.
+    assert (
+        by_baseline["expectimax"]["mean_return"]
+        > by_baseline["greedy_1ply"]["mean_return"]
+        > by_baseline["random"]["mean_return"]
+    )
 
 
 def test_runs_endpoints(client):
@@ -309,6 +339,47 @@ def test_watch_racing_session_streams_continuous_actions(client):
             assert len(event["action"]) == 2
             assert "steer" in event["action_name"]
             assert event["render"]["game"] == "racing"
+
+
+def test_watch_game2048_session_streams_board_renders(client):
+    resp = client.post(
+        "/api/watch",
+        json={"game": "game2048", "agent": "greedy_1ply", "seed": 3},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    initial = body["initial"]
+    assert initial["type"] == "state"
+    render = initial["render"]
+    assert render["game"] == "game2048"
+    # The board is a 4x4 grid of tile exponents, freshly dealt with
+    # the standard two tiles; header fields start at zero.
+    assert len(render["board"]) == 4
+    assert all(len(row) == 4 for row in render["board"])
+    tiles = sum(v != 0 for row in render["board"] for v in row)
+    assert tiles == 2
+    assert render["score"] == 0
+    assert render["moves"] == 0
+    assert render["max_tile"] in (2, 4)
+    assert render["game_over"] is False
+
+    session_id = body["session_id"]
+    with client.websocket_connect(f"/api/watch/{session_id}") as ws:
+        for expected_moves in range(1, 6):
+            ws.send_json({"cmd": "step"})
+            event = ws.receive_json()
+            assert event["type"] == "step"
+            assert event["action_name"] in ("UP", "RIGHT", "DOWN", "LEFT")
+            step_render = event["render"]
+            assert step_render["game"] == "game2048"
+            assert step_render["moves"] == expected_moves
+            assert len(step_render["board"]) == 4
+            # Every board-changing move is followed by exactly one
+            # spawn, identified in the payload for the highlight.
+            assert step_render["spawned"] is not None
+            r, c, exponent = step_render["spawned"]
+            assert step_render["board"][r][c] == exponent
+            assert exponent in (1, 2)
 
 
 def test_watch_validation(client):

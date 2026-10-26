@@ -57,6 +57,13 @@ def test_action_mask_shape_and_dtype(game):
         # generation guarantees at least one legal move.
         assert mask.any()
         assert not mask.all()
+    elif game == "game2048":
+        # 2048 also has real illegal actions from the first move (a
+        # direction that changes nothing), and the two opening tiles
+        # always leave at least one legal move. But never assert
+        # "not all": tiles at opposite corners make all four
+        # directions board-changing.
+        assert mask.any()
     else:
         # M1 games never mask anything out; the machinery is still exercised.
         assert mask.all()

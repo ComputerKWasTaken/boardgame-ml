@@ -165,6 +165,18 @@ def _pong(env, info: dict, reveal: bool) -> dict:
     }
 
 
+def _game2048(env, info: dict, reveal: bool) -> dict:
+    return {
+        "board": [[int(v) for v in row] for row in env.board],
+        "score": info.get("score", env.score),
+        "max_tile": info.get("max_tile", env.max_tile_value),
+        "moves": env.moves,
+        "game_over": env.game_over,
+        "spawned": info.get("spawned"),
+        "last_move": info.get("last_move"),
+    }
+
+
 _BUILDERS = {
     "pong": _pong,
     "blackjack": _blackjack,
@@ -173,6 +185,7 @@ _BUILDERS = {
     "flappy": _flappy,
     "racing": _racing,
     "connect_four": _connect_four,
+    "game2048": _game2048,
 }
 
 
