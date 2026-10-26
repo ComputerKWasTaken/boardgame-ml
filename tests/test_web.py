@@ -81,6 +81,7 @@ def test_games_endpoint(client):
         "racing",
         "connect_four",
         "pong",
+        "gym_classic",
     }
     bj = by_name["blackjack"]
     assert [a["name"] for a in bj["actions"]] == ["STAND", "HIT"]

@@ -147,6 +147,39 @@ intercept), not strategic mastery or evidence of improvement over an
 untrained policy. Disabling activation also changes future inventory and
 trajectories, so this comparison is not a controlled causal ablation.
 
+## Learning check follow-up (October 26, 2026)
+
+Two full-budget (250k steps, seed 0) runs tested whether the weak 50k result
+was a budget problem or a recipe problem.
+
+**Shipped recipe** (snapshots 0.7 / random 0.1 / intercept 0.2; run
+`runs/pong_ppo_s0_46045ce3`): the evaluation against intercept scored −5.00
+mean point difference at *every* checkpoint from 25k to 250k, so
+best-checkpoint selection had no signal and picked an arbitrary early
+checkpoint. Exam (50 matches per seat): best model 18% wins vs random
+(−1.57), final model 53% (+0.11); both went 0–100 against intercept and
+scored **zero points in 200 matches**.
+
+**Tracker-heavy A/B** (one variable changed: heuristic opponent switched to
+`pong_tracker` at share 0.6, snapshots 0.3, random 0.1 — which also makes
+tracker the evaluation opponent; run `runs/pong_ppo_s0_31960087`): training
+evaluations vs tracker ranged −4.95…−4.50 (best −4.50 at 200k), so
+checkpoint selection regained a weak gradient and best ≈ final on the exam:
+best 52% wins vs random (+0.30), final 51% (−0.05). Against tracker both
+checkpoints went 0–100 (35 and 26 points scored across 100 matches).
+Against intercept both went 0–100 with **zero points in 200 matches** —
+identical to the shipped recipe where it matters.
+
+Verdict: the mixture change is refuted as a fix at this budget, and the
+shipped config is unchanged (neither mixture is better against the
+opponents that count). Training diagnostics were healthy in both runs
+(entropy ≈ 1.69 nats, explained variance 0.65–0.85, no M8-style
+pathology); the standing suspicion is structural — a sparse ±1 point
+reward over long rallies gives a tabula-rasa policy almost no reachable
+gradient against predictive heuristic opponents. The named next levers
+are a staged opponent curriculum (random → tracker → intercept) or a
+much larger budget, not further mixture ratios.
+
 Validation: Pong rules and adapter tests, Gymnasium/SB3 checkers, existing
 Connect Four self-play/tournament tests, web/config/contract regressions,
 TypeScript production build, replay tick/legacy checks, and live browser
