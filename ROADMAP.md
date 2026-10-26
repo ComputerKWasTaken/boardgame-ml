@@ -11,7 +11,7 @@ push unless porked.*
 
 M1–M9 done: six games, three racing track families, self-play league, web
 cockpit, permanent diagnostics, the PPO std autopsy, cross-family transfer
-measured. 265 tests. What remains below is the whole board — eleven items.
+measured. 265 tests. What remains below is the whole board — twelve items.
 
 ---
 
@@ -76,6 +76,25 @@ as the centerpiece. This project is quietly becoming a serious portfolio
 piece for the job search; the showcase is an hour of curation, not a build.
 **Cost: S. Nothing goes public without the owner's explicit call.**
 
+### 10. Handicaps — modular action restrictions
+Train agents with part of the action space pruned, as a config-layer
+feature rather than per-game variants: static masks for Discrete games,
+ANDed with the legality mask (Connect Four with no center column);
+per-dimension clamps for Box spaces via one generic action wrapper (racing
+with `throttle_min: 0` is a car with no brakes). The fields live in the
+training YAML and the cockpit Train view, parity-tested like every other
+knob, and the restriction is stamped into `summary.json` next to the seed
+so runs stay honestly comparable. Flagship demo: brakeless racing — M9
+named the residual deficit as speed management into hairpins, and a driver
+that *cannot* brake has to learn speed discipline natively; its line
+should look visibly different in Watch. Physics handicaps (a Pong paddle
+that can only rise and falls back by gravity) are out of scope for the
+module — that restriction lives in the world's response, not the action
+set, and stays an env knob. Acceptance: the brakeless agent completes
+laps on the F2 exam; lap time and crash rate reported against the
+unrestricted generalist. **Cost: S. Item 7's sibling — ablation of the
+action space instead of observation/reward.**
+
 ---
 
 ## Standing disciplines (not milestones — woven into everything)
@@ -132,8 +151,8 @@ piece for the job search; the showcase is an hour of curation, not a build.
 1. **2048** and **3 (union generalist)** in parallel — new territory plus
    a cheap closing chapter.
 2. **Reversi → AlphaZero-lite** — the two-player story, fair then strong.
-3. **Braking-zone** while racing is warm; **Tron** when a new contract
-   sounds fun.
+3. **Braking-zone** and **handicaps** while racing is warm; **Tron** when
+   a new contract sounds fun.
 4. **Human play** as the victory lap; **ablation** whenever a quiet week
    wants a clean result; **Thumby** when it sparks joy.
 5. **Showcase** floats — it ships the day you say so.
