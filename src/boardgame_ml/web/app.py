@@ -43,6 +43,7 @@ from boardgame_ml.web.jobs import (
     build_config,
     default_algorithm,
     pair_defaults_payload,
+    pair_variants_payload,
 )
 from boardgame_ml.web.sessions import SessionManager
 
@@ -292,6 +293,9 @@ def create_app(runs_dir: str | Path = "runs") -> FastAPI:
             # (mirroring configs/*.yaml — parity-tested), so the
             # Train view can show them instead of diverging silently.
             "pair_defaults": pair_defaults_payload(),
+            # Named shipped variants of a pair (M7 generalists):
+            # build_config(..., variant=stem) reproduces them.
+            "pair_variants": pair_variants_payload(),
             "presets": {
                 name: {
                     "timesteps": p["timesteps"],

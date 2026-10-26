@@ -1,0 +1,46 @@
+# Racing GENERALIST with SAC (M7) — the M5 recipe, retrained on a
+# distribution of circuits instead of one near-oval.
+#
+# The question (DESIGN.md, M7): M5's SAC driver lapped the canonical
+# track in 100% of episodes — but was that *driving*, or was it a
+# memorized line around one loop? This run keeps every load-bearing
+# M5 choice (gamma 0.995 braking horizon, buffer >= run, lr 3e-4,
+# tau 0.005, ent_coef auto, [256,256] nets) and changes only the
+# world: RacingEnv deals a fresh generator-v2 track per episode from
+# the training range [10000, 11000). The exam set (50001-50005) is
+# outside that range and appears in no training run.
+#
+# * randomize_track: reset() draws the track seed first from the
+#   episode's seeded stream, so episodes are (track, spawn) pairs.
+# * The trainer's eval env carries the same env_kwargs, so evals run
+#   on fresh random circuits too: eval_episodes is raised to 20 (from
+#   the M5 run's 10) because a random-track eval mean is noisier
+#   than a fixed-track one, and best-by-eval selection reads it.
+# * total_timesteps 200000: SAC measured ~37 steps/s on this VM in
+#   M5; 200k steps ≈ 90 min. If the run must be cut, the artifact is
+#   the best-by-eval checkpoint, as always.
+game: racing
+algorithm: sac
+total_timesteps: 200000
+seed: 0
+n_envs: 1
+learning_rate: 0.0003
+gamma: 0.995
+eval_episodes: 20
+eval_freq: 10000
+output_dir: runs
+env_kwargs:
+  track_version: 2
+  randomize_track: true
+  track_seed_lo: 10000
+  track_seed_hi: 11000
+policy_kwargs:
+  net_arch: [256, 256]
+hyperparams:
+  buffer_size: 300000
+  batch_size: 256
+  tau: 0.005
+  ent_coef: auto
+  learning_starts: 5000
+  train_freq: 1
+  gradient_steps: 1

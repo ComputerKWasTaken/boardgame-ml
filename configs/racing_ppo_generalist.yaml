@@ -1,0 +1,38 @@
+# Racing GENERALIST with PPO (M7) — the companion run to
+# configs/racing_sac_generalist.yaml: same track distribution, same
+# exam, the M5 PPO recipe (gamma 0.995 / gae_lambda 0.98 braking
+# horizon, 8 envs, [256,256] nets) at its shipped 600k-step budget.
+#
+# The comparison this buys: does on-policy learning generalize
+# across circuits the way off-policy SAC does — and does the M5
+# peak-then-collapse dynamic survive contact with a moving target
+# (a fresh track every episode)? The run's product is the
+# best-by-eval checkpoint, as with every PPO racing run here.
+#
+# The training range [10000, 11000) and the held-out exam set
+# (50001-50005, eval/racing_exam.py) match the SAC generalist's
+# exactly, so the two generalists sit the same exam as each other
+# and as the zero-shot M5 specialists.
+game: racing
+algorithm: ppo
+total_timesteps: 600000
+seed: 0
+n_envs: 8
+learning_rate: 0.0003
+gamma: 0.995
+eval_episodes: 10
+eval_freq: 25000
+output_dir: runs
+env_kwargs:
+  track_version: 2
+  randomize_track: true
+  track_seed_lo: 10000
+  track_seed_hi: 11000
+policy_kwargs:
+  net_arch: [256, 256]
+hyperparams:
+  n_steps: 256
+  batch_size: 1024
+  n_epochs: 4
+  ent_coef: 0.005
+  gae_lambda: 0.98

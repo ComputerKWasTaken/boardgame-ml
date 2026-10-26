@@ -20,6 +20,13 @@ So: for every shipped YAML, ``build_config`` for the same
 field. The comparison reads the YAML files themselves — editing a
 shipped config's field without updating the cockpit's table (or
 vice versa) turns this suite red, by design.
+
+A shipped YAML whose filename stem names a **variant** in
+``PAIR_VARIANTS`` (M7's generalist racing configs — same pair as
+the canonical run, different ``env_kwargs``) is routed through
+``build_config(..., variant=stem)`` instead of the bare pair, so
+the one-description-per-config rule survives having two shipped
+configs for one pair.
 """
 
 from __future__ import annotations
@@ -32,6 +39,7 @@ from boardgame_ml.training.config import ExperimentConfig
 from boardgame_ml.web.jobs import (
     GAME_ALGORITHMS,
     PAIR_DEFAULTS,
+    PAIR_VARIANTS,
     PRESETS,
     build_config,
     default_algorithm,
@@ -82,15 +90,65 @@ def test_shipped_pair_is_representable(filename, shipped):
 )
 def test_build_config_matches_shipped_yaml(filename, shipped):
     """build_config(game, algorithm) == the shipped YAML on every
-    load-bearing field."""
-    built = build_config(game=shipped.game, algorithm=shipped.algorithm)
+    load-bearing field (variant YAMLs route through their variant)."""
+    stem = Path(filename).stem
+    variant = stem if stem in PAIR_VARIANTS else None
+    built = build_config(
+        game=shipped.game, algorithm=shipped.algorithm, variant=variant
+    )
     for field in PARITY_FIELDS:
         assert getattr(built, field) == getattr(shipped, field), (
             f"{filename}: cockpit build_config {field}="
             f"{getattr(built, field)!r} != shipped YAML "
-            f"{getattr(shipped, field)!r} — update PAIR_DEFAULTS or "
-            "the YAML so the two agree"
+            f"{getattr(shipped, field)!r} — update PAIR_DEFAULTS / "
+            "PAIR_VARIANTS or the YAML so the two agree"
         )
+
+
+def test_variants_have_shipped_yamls_and_vice_versa():
+    """Every PAIR_VARIANTS key is a shipped config's stem (no orphan
+    variants), and the variant's declared pair matches that YAML's."""
+    stems = {Path(name).stem: cfg for name, cfg in _SHIPPED}
+    for stem, spec in PAIR_VARIANTS.items():
+        assert stem in stems, f"variant {stem!r} has no shipped YAML"
+        shipped = stems[stem]
+        assert (spec["game"], spec["algorithm"]) == (
+            shipped.game,
+            shipped.algorithm,
+        )
+
+
+def test_generalist_variants_carry_the_track_distribution():
+    """The M7 trap, named: the generalist configs differ from the
+    canonical racing runs ONLY by env_kwargs — a fresh v2 circuit
+    per episode from the training range. A variant that quietly
+    dropped the randomization (or leaked the exam range) would
+    train a specialist while claiming to train a generalist."""
+    for stem, algorithm in (
+        ("racing_sac_generalist", "sac"),
+        ("racing_ppo_generalist", "ppo"),
+    ):
+        cfg = build_config(game="racing", algorithm=algorithm, variant=stem)
+        assert cfg.env_kwargs == {
+            "track_version": 2,
+            "randomize_track": True,
+            "track_seed_lo": 10_000,
+            "track_seed_hi": 11_000,
+        }
+        # Everything else is the pair's canonical recipe.
+        bare = build_config(game="racing", algorithm=algorithm)
+        for field in PARITY_FIELDS:
+            if field != "env_kwargs":
+                assert getattr(cfg, field) == getattr(bare, field)
+
+
+def test_variant_rejects_wrong_pair_and_unknown_names():
+    with pytest.raises(ValueError, match="not \('racing', 'ppo'\)"):
+        build_config(
+            game="racing", algorithm="ppo", variant="racing_sac_generalist"
+        )
+    with pytest.raises(ValueError, match="Unknown config variant"):
+        build_config(game="racing", algorithm="sac", variant="nope")
 
 
 def test_match3_cockpit_config_is_the_shipped_one():

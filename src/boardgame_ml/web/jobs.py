@@ -296,6 +296,41 @@ PAIR_DEFAULTS: dict[tuple[str, str], dict[str, Any]] = {
     },
 }
 
+#: Named **variants** of a (game, algorithm) pair: shipped configs
+#: that deliberately differ from the pair's canonical run on some
+#: load-bearing fields, keyed by the shipped YAML's filename stem.
+#: M7's generalist racing configs are the first: same algorithm,
+#: same recipe, but the env deals a fresh generator-v2 circuit per
+#: episode (``randomize_track`` over the training seed range) instead
+#: of the canonical seed-7 loop — a different experiment that happens
+#: to share its pair. The parity suite routes a YAML whose stem is
+#: a variant key through ``build_config(..., variant=stem)`` and a
+#: YAML with no variant through the bare pair, so every shipped
+#: config still has exactly one cockpit description that must match
+#: it field-for-field. Variant fields *replace* pair fields.
+PAIR_VARIANTS: dict[str, dict[str, Any]] = {
+    "racing_sac_generalist": {
+        "game": "racing",
+        "algorithm": "sac",
+        "env_kwargs": {
+            "track_version": 2,
+            "randomize_track": True,
+            "track_seed_lo": 10_000,
+            "track_seed_hi": 11_000,
+        },
+    },
+    "racing_ppo_generalist": {
+        "game": "racing",
+        "algorithm": "ppo",
+        "env_kwargs": {
+            "track_version": 2,
+            "randomize_track": True,
+            "track_seed_lo": 10_000,
+            "track_seed_hi": 11_000,
+        },
+    },
+}
+
 #: Algorithms the Train view offers per game, derived from
 #: :data:`PAIR_DEFAULTS` (i.e. exactly the pairs with a shipped
 #: config). Order is presentation order.
@@ -339,6 +374,26 @@ def pair_defaults_payload() -> dict[str, dict[str, Any]]:
     return payload
 
 
+def pair_variants_payload() -> dict[str, dict[str, Any]]:
+    """JSON-friendly view of :data:`PAIR_VARIANTS` for ``/api/meta``:
+    the named shipped variants, keyed by config stem, each with the
+    pair it modifies and the effective env_kwargs a job built with
+    that variant would carry."""
+    payload: dict[str, dict[str, Any]] = {}
+    for stem, spec in PAIR_VARIANTS.items():
+        built = build_config(
+            game=spec["game"], algorithm=spec["algorithm"], variant=stem
+        )
+        payload[stem] = {
+            "game": spec["game"],
+            "algorithm": spec["algorithm"],
+            "env_kwargs": deepcopy(built.env_kwargs),
+            "gamma": built.gamma,
+            "n_envs": built.n_envs,
+        }
+    return payload
+
+
 def build_config(
     *,
     game: str,
@@ -351,6 +406,7 @@ def build_config(
     n_envs: int | None = None,
     eval_freq: int | None = None,
     eval_episodes: int | None = None,
+    variant: str | None = None,
 ) -> ExperimentConfig:
     """Map a web train request onto an :class:`ExperimentConfig`.
 
@@ -358,15 +414,38 @@ def build_config(
     (:data:`PAIR_DEFAULTS`, mirroring the shipped YAML) supplies the
     load-bearing fields — gamma, policy, policy_kwargs, env_kwargs,
     n_envs, learning rate, hyperparams — and the preset supplies the
-    budget and eval cadence. Config validation (unknown game or
-    algorithm, mask guard inputs, shadowing hyperparams) happens in
-    ``ExperimentConfig`` itself.
+    budget and eval cadence. A ``variant`` (see :data:`PAIR_VARIANTS`)
+    replaces individual pair fields with a named shipped variant's
+    (e.g. M7's generalist env_kwargs) before any of that. Config
+    validation (unknown game or algorithm, mask guard inputs,
+    shadowing hyperparams) happens in ``ExperimentConfig`` itself.
     """
     if preset not in PRESETS:
         raise ValueError(
             f"Unknown preset {preset!r}; available: {sorted(PRESETS)}"
         )
     pair = PAIR_DEFAULTS.get((game, algorithm), {})
+    if variant is not None:
+        if variant not in PAIR_VARIANTS:
+            raise ValueError(
+                f"Unknown config variant {variant!r}; "
+                f"available: {sorted(PAIR_VARIANTS)}"
+            )
+        spec = PAIR_VARIANTS[variant]
+        if (spec["game"], spec["algorithm"]) != (game, algorithm):
+            raise ValueError(
+                f"Variant {variant!r} is the "
+                f"({spec['game']!r}, {spec['algorithm']!r}) config, not "
+                f"({game!r}, {algorithm!r})"
+            )
+        pair = {
+            **pair,
+            **{
+                key: value
+                for key, value in spec.items()
+                if key not in ("game", "algorithm")
+            },
+        }
     return ExperimentConfig(
         game=game,
         algorithm=algorithm,

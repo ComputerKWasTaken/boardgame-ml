@@ -621,6 +621,120 @@ enemy, but three refinements were earned the hard way:
    value-pretrained defense, or an order of magnitude more
    steps — is future work, stated as such.
 
+## Racing generalization (M7) — did it learn to drive, or a track?
+
+M5's drivers were trained *and measured* on one generated
+circuit (seed 7: a 301 m rounded loop, tightest radius ~28 m).
+Nothing in that setup distinguishes "learned to drive" from
+"learned this track" — the same policy that laps it in 11.95 s
+might be a racing driver or a very fast playback. M7 builds the
+instrument that can tell the difference: a track *distribution*
+to train on, and a held-out *exam set* to be graded on.
+
+**Generator v2** (`envs/racing.py::generate_track_v2`, selected
+per track via `build_track(seed, version=2)`; v1 is frozen —
+seed 7 is pinned by a golden sha256 test, so every M5 number
+stays reproducible). A candidate is a star-shaped control
+polygon: 10–18 points, angular gaps jittered U(0.5, 1.6),
+radii log-normal (σ 0.34, one light smoothing pass, clipped to
+[−0.95, +0.65] log units) around a base radius U(42, 72) m,
+sampled as a closed Catmull-Rom spline at 16 samples per
+segment. Star-shaped-by-construction keeps candidates sane
+cheaply; the gates below do the real work.
+
+**Validity gates** (`track_violations`, enforced inside the
+generator by rejection/repair — never trusted, always
+re-checkable): (a) no degenerate segments and total length in
+[170, 950] m; (b) **minimum turn radius ≥ 13 m** by circumradius
+over consecutive centerline triples — the threshold is tied to
+the physics: the grip cap (14 m/s²) bounds cornering speed at
+√(14·r), so a 13 m corner is drivable at ~13.5 m/s, while a
+tighter one would be a wall the car cannot legally take;
+(c) no crossings between non-adjacent centerline segments;
+(d) **branch separation**: points more than 1/6 of a lap apart
+along the loop stay more than `2·half_width + 3 m` apart in the
+plane, so two passes of the circuit are two ribbons of road,
+never one merged smear the raycasts cannot parse. Radius
+failures are *repaired*, not resampled: Laplacian passes on the
+control polygon (≤7) pull kinks out, aimed at a per-attempt
+target radius drawn U(13.5, 27) m — so accepted tracks spread
+across the tight/flowing spectrum instead of piling onto the
+gate floor, and their character survives (v1's lesson was a
+smoother that ironed a 7 m hairpin into a 28 m bend; v2's
+repair is bounded and aimed, never a resample). Structural
+failures resample; the radius variance stages down after
+40/90/150 attempts; 200 attempts without an accept raises.
+Measured over 200 fresh seeds: **200/200 accepted, mean 3.1
+attempts, ~16 ms per seed**; lengths 216–528 m, min radius
+13.6–29.0 m (median 18.6), 1–12 distinct corners per circuit
+(median 6) — straights, hairpins, S-curves and sweepers, not
+perturbed circles.
+
+**Per-episode tracks.** `RacingEnv(randomize_track=True,
+track_seed_lo, track_seed_hi)` draws the track seed *first*
+from the episode RNG on every `reset()`, so an episode seed
+determines (track, spawn) jointly and reproducibly; the dealt
+track is rebuilt only when it changes. Default fixed-track
+mode is untouched, as are physics, observation and reward —
+M5's bet was that a ray-fan observation is track-agnostic, and
+this mode is where the bet is settled.
+
+**Doctrine: distribution vs exam.** M6's lesson — for
+competitive games the tournament, not the eval curve, is the
+verdict — has a single-player analogue here. A generalist's
+training evals run on *random* tracks, so the curve mixes
+policy quality with the luck of which circuits were dealt;
+the grade comes from a fixed exam: five v2 tracks, seeds
+**50001–50005**, disjoint from the training range
+[10000, 11000) and from every prior run, 20 episodes each with
+episode seeds shared across agents. Three controls frame the
+result. The **specialists zero-shot** (the shipped M5 SAC and
+PPO bests, trained only on seed 7) measure how much of M5 was
+memorization. The **heuristic** — which reads only local
+geometry and has never seen any track — measures whether the
+task is reactively solvable at all, and sets the robustness
+bar (it laps everything, slowly). A generalist is credited
+with *driving* only if it beats the specialist's transfer by a
+wide margin and laps the majority of exam episodes.
+
+**Findings** (exam: 5 tracks × 20 episodes, shared episode
+seeds; README's M7 tables). The **specialist SAC transferred
+substantially**: 91% mean progress and an 81% lap-completion
+rate zero-shot — most of M5 was driving, not playback. But 32%
+of its episodes still ended in a crash, and one exam circuit
+(50001) killed it in all 20 episodes (25% managed a lap first).
+The **specialist PPO was the memorizer**: 45% laps, 88%
+crashes — its rescued peak was a fast line around one oval.
+The **generalist SAC aced the exam outright**: 100% progress,
+**100% lap completion on every track, zero crashes in 100
+episodes**, 6.2 laps per episode at 13.4 s mean — the
+heuristic's perfect robustness at twice its speed, and the
+specialists' pace without their fragility. Its training evals
+tell the same story in the other direction: by 30k steps it
+already averaged ~2,800 return over 20 *fresh* circuits per
+eval, and held a ±3% plateau for the remaining 140k+ (the run
+was killed by a VM restart at ≥170k of 200k steps; the
+best-by-eval checkpoint — 2,878 at 70k — is the shipped
+artifact, per doctrine). The **generalist PPO failed**: 26%
+laps, 89% crashes, *worse* than its own specialist's zero-shot
+despite a healthy-looking training curve. Its failure is
+uniform across tracks (0% laps on the 14 m hairpin circuit,
+100% episode-crash rates on four of five) — not one killer
+corner but a driver that never became robust: on-policy
+training against a distribution that changes every episode
+never gave it a fixed target long enough to stabilize, the
+same brittleness M5 saw as peak-and-collapse, expressed as
+never-converging instead. The M5b verdict survives contact
+with a distribution: SAC is the racing algorithm; PPO's racing
+results, specialist and generalist alike, are snapshots.
+
+One honest scope note: the exam circuits come from the same
+generator family as the training distribution (star-shaped
+control polygons). "Learned to drive" here means *within that
+family* — genuinely unseen layouts, lengths and corner
+sequences, but not cross-family transfer (no figure-eights,
+no open roads), which the gates deliberately exclude.
+
 
 * More games behind the same contract (the real test of modularity)
   — Match 3 landed in M3 (see above); Flappy Bird landed in M4 as

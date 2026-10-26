@@ -154,6 +154,39 @@ opponent who is also learning.
   the Train view with the league config carried by PAIR_DEFAULTS
   parity.
 
+## Milestone 7 — Racing generalization (did it learn to drive, or a track?)
+
+M5's drivers were trained and measured on a single circuit.
+M7 asks what they actually learned — by building circuits they
+have never seen, and an exam to grade everyone fairly.
+
+* **Generator v2** (`generate_track_v2`) — star-shaped control
+  polygons (10–18 points, jittered angles, log-normal radii)
+  through a closed Catmull-Rom spline: straights, hairpins,
+  S-curves, sweepers; lengths 216–528 m over a 200-seed batch.
+  Every candidate passes documented **validity gates** — no
+  self-intersection, branch separation beyond two track widths,
+  and a minimum turn radius of 13 m tied to the car's grip cap —
+  enforced by bounded repair + rejection resampling,
+  deterministic per seed (200/200 seeds accepted, ~3.1 attempts
+  average, ~16 ms per track). Generator v1 is **frozen**: seed 7
+  is pinned by a golden-hash test, so all M5 numbers still
+  reproduce exactly.
+* **Per-episode tracks** — `RacingEnv(randomize_track=True)`
+  deals a fresh circuit from the episode seed on every reset
+  (same seed → same track and spawn). Physics, observation and
+  reward untouched: the ray-fan obs was designed to be
+  track-agnostic; this is the milestone that settles whether
+  the policy is.
+* **The transfer experiment** — the shipped M5 specialists,
+  zero-shot on five unseen circuits: how much of M5 was
+  memorization? (Table in the M7 results below.)
+* **Generalists** — SAC and PPO retrained on the track
+  distribution (fresh circuit per episode, seeds 10000–10999),
+  same recipes as M5 otherwise, then graded on a **held-out
+  exam set**: seeds **50001–50005**, 20 episodes per track, the
+  heuristic riding along as the track-agnostic control.
+
 
 
 ```bash
@@ -173,6 +206,10 @@ python3 -m venv .venv
 # …or a trained checkpoint
 .venv/bin/python -m boardgame_ml.eval.evaluate --game blackjack \
     --agent runs/blackjack_maskable_ppo_s0/best_model.zip --episodes 5000
+
+# Racing generalization exam (M7): agents vs held-out circuits 50001-50005
+.venv/bin/python -m boardgame_ml.eval.racing_exam \
+    --agents runs/racing_sac_s0_77baf5ad/best_model.zip,racing_heuristic
 
 # Watch it play (text mode)
 .venv/bin/python -m boardgame_ml.play --game blackjack \
@@ -505,6 +542,70 @@ Training throughput is the self-play tax made concrete: ~815
 steps/s for run 1's recipe, ~570 steps/s for run 3's (bigger
 net, minimax anchor moves priced in Python). The bare env steps
 orders of magnitude faster; the league *is* the compute.
+
+## M7 results — Racing generalization (exam: 5 unseen circuits × 20 episodes)
+
+**Generator v2, measured over 200 fresh seeds:** 200/200
+accepted by the validity gates (no self-intersection, branch
+separation > 2 track widths + 3 m, min turn radius ≥ 13 m),
+mean 3.1 generation attempts per seed, ~16 ms per track.
+Lengths 216–528 m (median 358), tightest-corner radius
+13.6–29.0 m (median 18.6), 1–12 distinct corners (median 6).
+The v1 seed-7 oval (301 m, min radius ~28 m) is frozen and
+golden-hash tested — every M5 number still reproduces.
+
+**The transfer experiment** — the shipped M5 drivers, trained
+only on seed 7, zero-shot on the exam circuits:
+
+| agent | progress | lap rate | crash rate | laps/ep | mean lap |
+|---|---|---|---|---|---|
+| Specialist SAC (M5b best) | 91.0% | 81% | 32% | 4.55 | 13.2 s |
+| Specialist PPO (M5 best) | 81.9% | 45% | 88% | 1.24 | 14.7 s |
+| Heuristic (control) | 100% | 100% | 0% | 3.00 | 26.1 s |
+
+SAC had learned mostly driving; PPO's rescued peak was mostly
+a memorized line. Both specialists die on exam track 50001 in
+every episode (SAC still laps 25% of them first).
+
+**The exam** — exam seeds **50001–50005** (published; disjoint
+from the training range 10000–10999 and from every prior run):
+
+| agent | progress | lap rate | crash rate | laps/ep | mean lap |
+|---|---|---|---|---|---|
+| **Generalist SAC** | **100%** | **100%** | **0%** | **6.20** | **13.4 s** |
+| Specialist SAC (zero-shot) | 91.0% | 81% | 32% | 4.55 | 13.2 s |
+| Specialist PPO (zero-shot) | 81.9% | 45% | 88% | 1.24 | 14.7 s |
+| Generalist PPO | 70.5% | 26% | 89% | 0.88 | 13.2 s |
+| Heuristic (control) | 100% | 100% | 0% | 3.00 | 26.1 s |
+
+The generalist SAC — trained on a fresh circuit per episode,
+eval-selected checkpoint (2,878 mean return over 20 random
+circuits at 70k steps) — **laps every exam episode on every
+track without a single crash**, at specialist pace. It matches
+the heuristic's perfect robustness at half the lap time.
+Per track it is uniformly 100/100; the specialists' weak spot
+(50001) is its equal-best. The generalist PPO is the honest
+failure in the table: worse than its own specialist despite
+600k steps, crashing in ~9 of 10 episodes everywhere — the
+M5 on-policy brittleness, expressed against a moving target.
+
+**Training:** PPO generalist 600k steps in 353 s (~1,700
+steps/s). SAC generalist: reached its plateau (~2,800 eval
+return on fresh circuits) by ~30–70k steps and held it; the
+run was killed by a VM restart at ≥170k of 200k steps (~85 min
+wall, ~34 steps/s including 20-episode evals on random
+tracks), and its best-by-eval checkpoint is the shipped
+artifact, per the framework's checkpoint doctrine.
+
+**Verdict.** M5's SAC driver had learned to drive — imperfectly
+(a third of unseen-track episodes still ended in a crash).
+M5's PPO driver had learned *a track*. And distribution
+training closes the gap completely for SAC: within the
+generator's family, the generalist is a driver, full stop —
+the exam's hardest circuit for both specialists is routine
+for it. Scope note: "driving" is proven within the generator
+family (star-shaped circuits); cross-family transfer is
+untested by design.
 
 ## Post-M1 hardening
 
